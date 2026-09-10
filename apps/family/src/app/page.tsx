@@ -1,6 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { getFamilyToday, recordFamilyAction } from "@/lib/family-api";
+import { mockFamilyToday } from "@/lib/mock-family-data";
+import type { FamilyAction, FamilyToday } from "@/lib/types";
 
 type PageKey = "today" | "report" | "trend" | "risk" | "plan" | "privacy";
 
@@ -31,15 +34,45 @@ function Card({ children, className = "" }: { children: React.ReactNode; classNa
 }
 
 export default function FamilyDashboard() {
+  const elderId = "elder-demo-001";
   const [page, setPage] = useState<PageKey>("today");
   const [action, setAction] = useState("尚未记录行动");
-  const [notice, setNotice] = useState("演示数据：家属仅看到已授权的摘要、趋势和安全事件状态。");
+  const [notice, setNotice] = useState("正在读取已授权的摘要、趋势和安全事件状态。");
+  const [today, setToday] = useState<FamilyToday>(mockFamilyToday);
+  const [apiState, setApiState] = useState<"loading" | "connected" | "fallback">("loading");
 
   const greeting = useMemo(() => new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "long" }).format(new Date()), []);
 
-  const recordAction = (label: string) => {
-    setAction(`已记录：${label}`);
-    setNotice(`关怀行动“${label}”已保存。接入后端后将提交至 /api/family/risk-events/{id}/actions。`);
+  useEffect(() => {
+    let active = true;
+
+    void getFamilyToday(elderId)
+      .then((data) => {
+        if (!active) return;
+        setToday(data);
+        setApiState("connected");
+        setNotice("已读取家属端 Mock API。正式联调时只需配置 NEXT_PUBLIC_API_BASE_URL。");
+      })
+      .catch(() => {
+        if (!active) return;
+        setApiState("fallback");
+        setNotice("暂时无法连接 API，正在使用本地演示数据。");
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [elderId]);
+
+  const recordAction = async (nextAction: FamilyAction, label: string) => {
+    try {
+      await recordFamilyAction("risk-demo-001", nextAction);
+      setAction(`已记录：${label}`);
+      setNotice(`关怀行动“${label}”已提交。该记录会进入家属端的后续审计与跟进流程。`);
+    } catch {
+      setAction(`待同步：${label}`);
+      setNotice("行动暂未同步到服务端，请在网络恢复后重试。演示数据没有被视为正式记录。");
+    }
   };
 
   return (
@@ -52,7 +85,7 @@ export default function FamilyDashboard() {
 
         <div className="elder-switcher">
           <div className="elder-avatar">陈</div>
-          <div><strong>陈奶奶</strong><span>82 岁 · 已授权</span></div>
+          <div><strong>{today.elder.name}</strong><span>{today.elder.age} 岁 · 已授权</span></div>
           <button aria-label="切换老人" className="icon-button">⌄</button>
         </div>
 
@@ -66,7 +99,7 @@ export default function FamilyDashboard() {
 
         <div className="sidebar-footer">
           <span className="live-dot" /> 授权状态正常
-          <small>当前为 Mock 数据模式</small>
+          <small>{apiState === "connected" ? "已连接家属端 Mock API" : apiState === "loading" ? "正在连接数据服务" : "本地演示数据模式"}</small>
         </div>
       </aside>
 
@@ -78,10 +111,10 @@ export default function FamilyDashboard() {
 
         <div className="notice" role="status"><span>i</span>{notice}</div>
 
-        {page === "today" && <TodayView action={action} onAction={recordAction} onNavigate={() => setPage("report")} />}
+        {page === "today" && <TodayView today={today} action={action} onAction={recordAction} onNavigate={() => setPage("report")} />}
         {page === "report" && <ReportView />}
         {page === "trend" && <TrendView />}
-        {page === "risk" && <RiskView action={action} onAction={recordAction} />}
+        {page === "risk" && <RiskView today={today} action={action} onAction={recordAction} />}
         {page === "plan" && <PlanView onAction={recordAction} />}
         {page === "privacy" && <PrivacyView />}
       </div>
@@ -89,24 +122,26 @@ export default function FamilyDashboard() {
   );
 }
 
-function TodayView({ action, onAction, onNavigate }: { action: string; onAction: (action: string) => void; onNavigate: () => void }) {
+function TodayView({ today, action, onAction, onNavigate }: { today: FamilyToday; action: string; onAction: (action: FamilyAction, label: string) => Promise<void>; onNavigate: () => void }) {
+  const baselineDescription = today.status.baselineDelta < 0 ? `下降 ${Math.abs(today.status.baselineDelta)} 分` : today.status.baselineDelta > 0 ? `上升 ${today.status.baselineDelta} 分` : "持平";
+
   return <div className="page-grid today-grid">
     <Card className="hero-card">
-      <div className="eyebrow">今日状态 <Tag tone="warm">需要轻度关怀</Tag></div>
-      <h2>陈奶奶今天更适合收到一句不着急的问候。</h2>
-      <p>系统观察到她昨晚提到睡眠不太踏实；今天的交流中也出现了“想家人”的话题。没有发现紧急安全信号。</p>
-      <div className="hero-actions"><button className="primary" onClick={() => onAction("已电话联系")}>我已联系她</button><button className="secondary" onClick={() => onAction("计划晚间视频联络")}>安排视频联络</button></div>
+      <div className="eyebrow">今日状态 <Tag tone="warm">{today.status.label}</Tag></div>
+      <h2>{today.status.headline}</h2>
+      <p>{today.status.summary}</p>
+      <div className="hero-actions"><button className="primary" onClick={() => { void onAction("contacted", "已电话联系"); }}>我已联系她</button><button className="secondary" onClick={() => { void onAction("video_planned", "计划晚间视频联络"); }}>安排视频联络</button></div>
       <small>{action}</small>
     </Card>
 
     <Card className="score-card">
-      <p className="muted">今日关怀指数</p><div className="score-row"><strong>72</strong><span>/ 100</span></div>
-      <div className="meter"><i style={{ width: "72%" }} /></div><p className="score-caption">较个人近 7 天基线 <b>下降 6 分</b></p>
+      <p className="muted">今日关怀指数</p><div className="score-row"><strong>{today.status.score}</strong><span>/ 100</span></div>
+      <div className="meter"><i style={{ width: `${today.status.score}%` }} /></div><p className="score-caption">较个人近 7 天基线 <b>{baselineDescription}</b></p>
     </Card>
 
     <Card className="summary-card">
       <div className="card-heading"><div><p className="muted">今日摘要</p><h3>她谈到了什么</h3></div><button className="text-button" onClick={onNavigate}>查看报告 →</button></div>
-      <div className="topic-list"><div><span className="topic-dot lavender" />睡眠与作息 <b>轻度关注</b></div><div><span className="topic-dot peach" />想念家人 <b>建议联系</b></div><div><span className="topic-dot mint" />午后晒太阳 <b>正向事件</b></div></div>
+      <div className="topic-list">{today.topics.map((topic) => <div key={topic.name}><span className={`topic-dot ${topic.tone}`} />{topic.name} <b>{topic.note}</b></div>)}</div>
     </Card>
 
     <Card className="timeline-card">
@@ -134,16 +169,16 @@ function TrendView() {
   </div>;
 }
 
-function RiskView({ action, onAction }: { action: string; onAction: (action: string) => void }) {
+function RiskView({ today, action, onAction }: { today: FamilyToday; action: string; onAction: (action: FamilyAction, label: string) => Promise<void> }) {
   return <div className="page-grid risk-grid">
-    <Card className="risk-overview"><div><Tag tone="warm">黄色 · 待观察</Tag><h2>当前没有紧急风险事件</h2><p>系统提示以温和联系为主。若出现一键呼救、确认跌倒或明确生命安全危机，系统将升级为红色事件。</p></div><div className="risk-ring"><b>低</b><span>紧急程度</span></div></Card>
-    <Card className="action-card"><p className="muted">本次待办</p><h3>完成一项关怀行动</h3><button className="primary full" onClick={() => onAction("已电话联系")}>记录已联系</button><button className="secondary full" onClick={() => onAction("申请专业转介")}>申请专业转介</button><small>{action}</small></Card>
-    <Card className="event-card"><div className="card-heading"><div><p className="muted">安全事件</p><h3>一键呼救与设备事件</h3></div><Tag tone="safe">暂无事件</Tag></div><p>家属端只显示事件状态、处置时限和必要说明；不默认开放摄像头画面或日常视频。</p></Card>
+    <Card className="risk-overview"><div><Tag tone="warm">黄色 · 待观察</Tag><h2>{today.safety.message}</h2><p>系统提示以温和联系为主。若出现一键呼救、确认跌倒或明确生命安全危机，系统将升级为红色事件。</p></div><div className="risk-ring"><b>低</b><span>紧急程度</span></div></Card>
+    <Card className="action-card"><p className="muted">本次待办</p><h3>完成一项关怀行动</h3><button className="primary full" onClick={() => { void onAction("contacted", "已电话联系"); }}>记录已联系</button><button className="secondary full" onClick={() => { void onAction("referral_requested", "申请专业转介"); }}>申请专业转介</button><small>{action}</small></Card>
+    <Card className="event-card"><div className="card-heading"><div><p className="muted">安全事件</p><h3>一键呼救与设备事件</h3></div><Tag tone={today.safety.hasActiveEmergency ? "alert" : "safe"}>{today.safety.hasActiveEmergency ? "处理中" : "暂无事件"}</Tag></div><p>家属端只显示事件状态、处置时限和必要说明；不默认开放摄像头画面或日常视频。</p></Card>
   </div>;
 }
 
-function PlanView({ onAction }: { onAction: (action: string) => void }) {
-  return <div className="page-grid plan-grid"><Card className="plan-hero"><p className="muted">下一次陪伴</p><h2>今晚 19:30 · 视频问候</h2><p>由陈奶奶决定是否接通。系统只负责打开已绑定的联络路径，不保存微信通话内容。</p><button className="primary" onClick={() => onAction("已确认今晚视频问候")}>确认安排</button></Card><Card><p className="muted">本周清单</p><div className="task-list"><label><input type="checkbox" defaultChecked /> 发一条轻松的早安语音</label><label><input type="checkbox" /> 询问是否愿意视频聊天</label><label><input type="checkbox" /> 与家人协调周末探望</label></div></Card><Card><p className="muted">关怀话题</p><h3>避免“盘问式”关心</h3><div className="prompt-chips"><span>今天阳光好吗？</span><span>昨晚睡得还好吗？</span><span>想不想听孙女说说学校？</span></div></Card></div>;
+function PlanView({ onAction }: { onAction: (action: FamilyAction, label: string) => Promise<void> }) {
+  return <div className="page-grid plan-grid"><Card className="plan-hero"><p className="muted">下一次陪伴</p><h2>今晚 19:30 · 视频问候</h2><p>由陈奶奶决定是否接通。系统只负责打开已绑定的联络路径，不保存微信通话内容。</p><button className="primary" onClick={() => { void onAction("video_planned", "已确认今晚视频问候"); }}>确认安排</button></Card><Card><p className="muted">本周清单</p><div className="task-list"><label><input type="checkbox" defaultChecked /> 发一条轻松的早安语音</label><label><input type="checkbox" /> 询问是否愿意视频聊天</label><label><input type="checkbox" /> 与家人协调周末探望</label></div></Card><Card><p className="muted">关怀话题</p><h3>避免“盘问式”关心</h3><div className="prompt-chips"><span>今天阳光好吗？</span><span>昨晚睡得还好吗？</span><span>想不想听孙女说说学校？</span></div></Card></div>;
 }
 
 function PrivacyView() {
