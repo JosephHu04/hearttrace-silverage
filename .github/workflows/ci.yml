@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, "feature/**", "chore/**", "fix/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-repository:
+    name: validate-repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Verify required project documents
+        run: |
+          test -f README.md
+          test -f docs/architecture.md
+          test -f docs/api-contract.md
+          test -f docs/decision-log.md
+      - name: Check whitespace errors
+        run: git diff --check HEAD^ HEAD
+
+  build-family:
+    name: build-family
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/family
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/family/package-lock.json
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Build and type-check family application
+        run: npm run build

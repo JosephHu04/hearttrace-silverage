@@ -33,4 +33,8 @@ infra/              本地开发与部署配置
 3. 禁止提交 API 密钥、真实聊天、真实视频、真实联系方式或未授权样本。
 4. 紧急联络和防跌倒仅使用合成测试数据进行演示。
 
+## 团队协作
+
+所有改动通过功能分支和 Pull Request 合并；CI 会校验仓库基础文档并构建家属端。分支命名、冲突处理与审查要求见 [协作规则](CONTRIBUTING.md)。
+
 详细规划见 [总体技术规划书](docs/心迹银龄独立版总体技术规划书.docx)、[架构说明](docs/architecture.md)、[接口契约](docs/api-contract.md) 与 [决策记录](docs/decision-log.md)。
