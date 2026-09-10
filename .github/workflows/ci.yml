@@ -30,6 +30,8 @@ jobs:
           test -f docs/decision-log.md
       - name: Check whitespace errors
         run: git diff --check HEAD^ HEAD
+      - name: Check Qwen worker syntax
+        run: python3 -m py_compile services/worker/qwen_analysis.py services/worker/qwen_evaluate.py
 
   build-family:
     name: build-family
