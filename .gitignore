@@ -24,6 +24,8 @@ uploads/
 recordings/
 event-clips/
 *.sqlite3
+*.db
+.pytest_cache/
 
 # IDE and OS files
 .DS_Store
