@@ -123,8 +123,6 @@ export default function FamilyDashboard() {
 }
 
 function TodayView({ today, action, onAction, onNavigate }: { today: FamilyToday; action: string; onAction: (action: FamilyAction, label: string) => Promise<void>; onNavigate: () => void }) {
-  const baselineDescription = today.status.baselineDelta < 0 ? `下降 ${Math.abs(today.status.baselineDelta)} 分` : today.status.baselineDelta > 0 ? `上升 ${today.status.baselineDelta} 分` : "持平";
-
   return <div className="page-grid today-grid">
     <Card className="hero-card">
       <div className="eyebrow">今日状态 <Tag tone="warm">{today.status.label}</Tag></div>
@@ -135,8 +133,8 @@ function TodayView({ today, action, onAction, onNavigate }: { today: FamilyToday
     </Card>
 
     <Card className="score-card">
-      <p className="muted">今日关怀指数</p><div className="score-row"><strong>{today.status.score}</strong><span>/ 100</span></div>
-      <div className="meter"><i style={{ width: `${today.status.score}%` }} /></div><p className="score-caption">较个人近 7 天基线 <b>{baselineDescription}</b></p>
+      <p className="muted">今日自述心情</p><div className="score-row"><strong>{today.dailyCheckIn.moodLabel}</strong></div>
+      <p className="score-caption">{today.dailyCheckIn.description}</p>
     </Card>
 
     <Card className="summary-card">
@@ -153,7 +151,7 @@ function TodayView({ today, action, onAction, onNavigate }: { today: FamilyToday
 
 function ReportView() {
   return <div className="page-grid report-grid">
-    <Card className="report-head"><div><Tag tone="calm">9 月 10 日</Tag><h2>情绪整体平稳，夜间睡眠话题值得温和跟进。</h2><p>这是一份辅助关怀摘要，不是心理疾病诊断。每项结论均由授权对话的主题、趋势或量表结果支持。</p></div><div className="report-score"><span>心境</span><strong>72</strong><small>个人基线 78</small></div></Card>
+    <Card className="report-head"><div><Tag tone="calm">9 月 10 日</Tag><h2>情绪整体平稳，夜间睡眠话题值得温和跟进。</h2><p>这是一份辅助关怀摘要，不是心理疾病诊断。每日心情、标准量表和安全事件会被分别记录与说明。</p></div><div className="report-score"><span>关怀状态</span><strong>平稳</strong><small>非量表分数</small></div></Card>
     <Card><p className="muted">积极片段</p><h3>值得延续的事</h3><ul className="clean-list"><li>午后晒太阳并和邻居聊了几句</li><li>主动提到想给孙女讲年轻时的故事</li><li>愿意尝试明晚和家人视频聊天</li></ul></Card>
     <Card><p className="muted">关怀建议</p><h3>从倾听开始</h3><ol className="number-list"><li>先问睡眠，不急着给建议。</li><li>邀请她决定视频通话时间。</li><li>若低落持续，建议完成一次标准筛查。</li></ol></Card>
     <Card className="evidence-card"><div className="card-heading"><div><p className="muted">可追溯线索</p><h3>仅展示授权后的主题摘要</h3></div><Tag tone="safe">授权有效</Tag></div><div className="evidence-row"><span>主题</span><b>睡眠变浅</b><em>来自今日 2 个会话摘要</em></div><div className="evidence-row"><span>趋势</span><b>近 3 天晚间心境略降</b><em>个人基线对比</em></div></Card>
@@ -163,8 +161,8 @@ function ReportView() {
 function TrendView() {
   const points = "0,74 55,62 110,66 165,45 220,52 275,38 330,47 385,41 440,58";
   return <div className="page-grid trend-grid">
-    <Card className="trend-card"><div className="card-heading"><div><p className="muted">近 7 天</p><h2>只与她自己的基线比较</h2></div><div className="segmented"><button className="selected">7 天</button><button>30 天</button></div></div><div className="chart-wrap"><div className="chart-y"><span>90</span><span>70</span><span>50</span><span>30</span></div><svg viewBox="0 0 450 120" role="img" aria-label="近七日心境趋势图"><defs><linearGradient id="fill" x1="0" x2="0" y1="0" y2="1"><stop stopColor="#c9c6f4" stopOpacity=".55"/><stop offset="1" stopColor="#c9c6f4" stopOpacity="0"/></linearGradient></defs><path d={`M0,120 L${points} L440,120 Z`} fill="url(#fill)"/><polyline points={points} fill="none" stroke="#6f6ab5" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>{points.split(" ").map((point) => { const [cx, cy] = point.split(","); return <circle key={point} cx={cx} cy={cy} r="4" fill="#fff" stroke="#6f6ab5" strokeWidth="2"/>; })}</svg></div><div className="chart-labels"><span>周四</span><span>周五</span><span>周六</span><span>周日</span><span>周一</span><span>周二</span><span>今天</span></div></Card>
-    <Card className="baseline-card"><p className="muted">趋势说明</p><h3>今天比个人基线低 6 分</h3><p>变化仍处于轻度观察区间。建议以联系、陪伴和作息关怀为先，不直接推断疾病。</p><Tag tone="warm">连续观察 3 天</Tag></Card>
+    <Card className="trend-card"><div className="card-heading"><div><p className="muted">近 7 天</p><h2>关怀信号趋势，不是诊断量表</h2></div><div className="segmented"><button className="selected">7 天</button><button>30 天</button></div></div><div className="chart-wrap"><div className="chart-y"><span>高</span><span>中</span><span>低</span><span>低</span></div><svg viewBox="0 0 450 120" role="img" aria-label="近七日关怀信号趋势图"><defs><linearGradient id="fill" x1="0" x2="0" y1="0" y2="1"><stop stopColor="#c9c6f4" stopOpacity=".55"/><stop offset="1" stopColor="#c9c6f4" stopOpacity="0"/></linearGradient></defs><path d={`M0,120 L${points} L440,120 Z`} fill="url(#fill)"/><polyline points={points} fill="none" stroke="#6f6ab5" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>{points.split(" ").map((point) => { const [cx, cy] = point.split(","); return <circle key={point} cx={cx} cy={cy} r="4" fill="#fff" stroke="#6f6ab5" strokeWidth="2"/>; })}</svg></div><div className="chart-labels"><span>周四</span><span>周五</span><span>周六</span><span>周日</span><span>周一</span><span>周二</span><span>今天</span></div></Card>
+    <Card className="baseline-card"><p className="muted">趋势说明</p><h3>连续 3 天出现需关怀信号</h3><p>建议以联系、陪伴和作息关怀为先；如符合触发条件，再由本人完成固定题目筛查，不直接推断疾病。</p><Tag tone="warm">建议温和联系</Tag></Card>
     <Card className="screening-card"><p className="muted">标准化筛查</p><h3>最近一次：尚未完成</h3><p>如本人愿意，可由老人端完成固定题目的自评量表；结果仅作为进一步关怀的参考。</p><button className="secondary">查看授权说明</button></Card>
   </div>;
 }

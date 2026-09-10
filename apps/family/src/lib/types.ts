@@ -17,10 +17,20 @@ export type FamilyToday = {
     label: string;
     headline: string;
     summary: string;
-    score: number;
-    baselineDelta: number;
   };
   topics: Topic[];
+  dailyCheckIn: {
+    moodLabel: string;
+    description: string;
+    recordedAt: string;
+    source: "self_report";
+  };
+  screenings: Array<{
+    instrument: "PHQ-9" | "GAD-7" | "AD8";
+    label: string;
+    status: "not_started" | "completed" | "follow_up";
+    familyVisibility: "authorized_summary" | "not_authorized";
+  }>;
   safety: {
     hasActiveEmergency: boolean;
     message: string;
