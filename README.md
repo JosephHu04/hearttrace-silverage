@@ -39,6 +39,14 @@ infra/              本地开发与部署配置
 
 ## 团队协作
 
-所有改动通过功能分支和 Pull Request 合并；CI 会校验仓库基础文档并构建家属端。分支命名、冲突处理与审查要求见 [协作规则](CONTRIBUTING.md)。
+所有改动通过功能分支和 Pull Request 合并；CI 会校验仓库基础文档，构建家属端和管理端，并测试核心 API。分支命名、冲突处理与审查要求见 [协作规则](CONTRIBUTING.md)。
 
 详细规划见 [总体技术规划书](docs/心迹银龄独立版总体技术规划书.docx)、[架构说明](docs/architecture.md)、[接口契约](docs/api-contract.md) 与 [决策记录](docs/decision-log.md)。
+
+## 当前实现进度
+
+- 家属端：六个关怀页面与本地 Mock API。
+- 管理端：风险队列、结构化证据、状态机处置和操作时间线。
+- 核心 API：演示 JWT、服务端 RBAC、风险复核、幂等与乐观版本、审计日志、SQLite/PostgreSQL 配置及 Alembic 初始迁移。
+
+本地运行方式见 [管理端说明](apps/admin/README.md) 和 [核心 API 说明](services/api/README.md)。

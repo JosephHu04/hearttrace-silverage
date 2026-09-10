@@ -50,3 +50,50 @@ jobs:
         run: npm ci
       - name: Build and type-check family application
         run: npm run build
+
+  build-admin:
+    name: build-admin
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/admin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.17.1
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/admin/pnpm-lock.yaml
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build and type-check admin application
+        run: pnpm run build
+
+  test-api:
+    name: test-api
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: services/api/requirements-dev.txt
+      - name: Install API dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Run API tests
+        run: pytest
+      - name: Verify database migration
+        env:
+          DATABASE_URL: sqlite+pysqlite:///./ci-migration.db
+          SEED_DEMO_DATA: "false"
+        run: |
+          alembic upgrade head
+          alembic check
