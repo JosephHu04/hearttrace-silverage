@@ -7,6 +7,7 @@ import os
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 
@@ -28,6 +29,7 @@ class QwenConfig:
 
     @classmethod
     def from_environment(cls) -> "QwenConfig":
+        _load_optional_local_environment()
         api_key = os.getenv("DASHSCOPE_API_KEY", "")
         if not api_key or api_key == "replace-me":
             raise RuntimeError("请在本机环境变量 DASHSCOPE_API_KEY 中配置轮换后的百炼 API Key。")
@@ -37,6 +39,19 @@ class QwenConfig:
             model=os.getenv("DASHSCOPE_MODEL", DEFAULT_MODEL),
             timeout_seconds=int(os.getenv("DASHSCOPE_TIMEOUT_SECONDS", "30")),
         )
+
+
+def _load_optional_local_environment() -> None:
+    """Load only missing variables from the ignored repository-root .env.local file."""
+    local_env = Path(__file__).resolve().parents[2] / ".env.local"
+    if not local_env.is_file():
+        return
+    for raw_line in local_env.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, value = line.split("=", 1)
+        os.environ.setdefault(name.strip(), value.strip().strip('"').strip("'"))
 
 
 class QwenAnalysisClient:

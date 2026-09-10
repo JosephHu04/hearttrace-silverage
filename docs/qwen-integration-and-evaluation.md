@@ -11,6 +11,8 @@ MVP 的文本陪伴与异步关怀分析统一选择 **`qwen-plus`**。
 
 阿里云百炼的新按量付费 API Key 可以 `sk-ws-` 开头；它是 API Key，不是 SSH 私钥。密钥只能保存在本机环境变量或密钥管理服务中，不能提交到 Git 仓库。
 
+开发时可在仓库根目录创建被 `.gitignore` 排除的 `.env.local`，填入 `DASHSCOPE_API_KEY`、`DASHSCOPE_BASE_URL` 和 `DASHSCOPE_MODEL`；评测脚本会读取该文件，但不会打印或保存其中的密钥。
+
 ## 接入方式
 
 使用百炼 OpenAI 兼容接口：
