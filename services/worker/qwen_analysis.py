@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -15,9 +16,10 @@ DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 DEFAULT_MODEL = "qwen-plus"
 
 SYSTEM_PROMPT = """你是“心迹银龄”的关怀分析助手。只分析已获得授权的对话摘要。
-只返回一个 JSON 对象：
-{"candidate_signals":["loneliness|sleep_change|low_mood|anxiety|cognitive_concern|crisis_language"],"urgent_safety_check":true,"recommended_next_step":"daily_care|invite_screening|human_follow_up|emergency_workflow","family_summary":"不超过80字、非诊断性的中文摘要","evidence_turn_indexes":[0]}
-规则：不诊断疾病，不输出风险等级。仅明确自伤/自杀表达、明确生命安全危机或一键呼救时 urgent_safety_check 为 true。孤独、睡眠不好或一次低落不属于紧急事件。证据下标只能引用输入对话数组。紧急安全确认必须进入 emergency_workflow。"""
+只返回一个 JSON 对象，且仅包含以下五个键：candidate_signals、urgent_safety_check、recommended_next_step、family_summary、evidence_turn_indexes。
+candidate_signals 只能使用以下英文枚举值：loneliness、sleep_change、low_mood、anxiety、cognitive_concern、crisis_language；不得使用 depression、suicide、risk 或任何中文词。
+recommended_next_step 只能使用 daily_care、invite_screening、human_follow_up、emergency_workflow。
+规则：不诊断疾病，不输出风险等级。仅明确自伤/自杀表达、明确生命安全危机或一键呼救时 urgent_safety_check 为 true。孤独、睡眠不好或一次低落不属于紧急事件。若对话明确出现持续两周的兴趣减退、情绪低落或难以控制的焦虑，应使用 invite_screening；认知担忧也应使用 invite_screening。证据下标只能引用输入对话数组。紧急安全确认必须进入 emergency_workflow。"""
 
 
 @dataclass(frozen=True)
@@ -65,6 +67,7 @@ class QwenAnalysisClient:
         body = {
             "model": self.config.model,
             "temperature": 0,
+            "response_format": {"type": "json_object"},
             "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": f"以下是已授权的对话片段：\n{indexed_turns}"},
@@ -76,14 +79,18 @@ class QwenAnalysisClient:
             headers={"Authorization": f"Bearer {self.config.api_key}", "Content-Type": "application/json"},
             method="POST",
         )
-        try:
-            with urllib.request.urlopen(request, timeout=self.config.timeout_seconds) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError as error:
-            details = error.read().decode("utf-8", errors="replace")[:500]
-            raise RuntimeError(f"百炼调用失败（HTTP {error.code}）：{details}") from error
-        except urllib.error.URLError as error:
-            raise RuntimeError(f"无法连接百炼服务：{error.reason}") from error
+        for attempt in range(3):
+            try:
+                with urllib.request.urlopen(request, timeout=self.config.timeout_seconds) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+                break
+            except urllib.error.HTTPError as error:
+                details = error.read().decode("utf-8", errors="replace")[:500]
+                raise RuntimeError(f"百炼调用失败（HTTP {error.code}）：{details}") from error
+            except urllib.error.URLError as error:
+                if attempt == 2:
+                    raise RuntimeError(f"无法连接百炼服务：{error.reason}") from error
+                time.sleep(0.5 * (2**attempt))
 
         try:
             content = payload["choices"][0]["message"]["content"]

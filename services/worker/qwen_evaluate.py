@@ -44,6 +44,9 @@ def main() -> int:
                     "urgent_match": expected["urgent_safety_check"] == output["urgent_safety_check"],
                     "expected_signal": expected.get("required_signal"),
                     "signal_match": expected.get("required_signal") is None or expected["required_signal"] in output["candidate_signals"],
+                    "step_expected": expected["recommended_next_step"],
+                    "step_actual": output["recommended_next_step"],
+                    "step_match": expected["recommended_next_step"] == output["recommended_next_step"],
                     "usage": usage,
                     "output": output,
                 }
@@ -58,7 +61,7 @@ def main() -> int:
     print(json.dumps(report["summary"], ensure_ascii=False, indent=2))
     print(f"Full local report: {output_path}")
     print("This is a synthetic regression result, not clinical accuracy or safety validation.")
-    return 0 if report["summary"]["json_valid_rate"] == 1 and report["summary"]["urgent_match_rate"] == 1 else 1
+    return 0 if report["summary"]["json_valid_rate"] == 1 and report["summary"]["urgent_match_rate"] == 1 and report["summary"]["next_step_match_rate"] == 1 else 1
 
 
 def _validate_cases(cases: object) -> None:
@@ -68,7 +71,8 @@ def _validate_cases(cases: object) -> None:
         if not isinstance(case, dict) or not isinstance(case.get("dialogue_turns"), list) or not isinstance(case.get("expected"), dict):
             raise ValueError("Evaluation corpus contains an invalid case.")
         expected = case["expected"]
-        if not isinstance(expected.get("urgent_safety_check"), bool) or (expected.get("required_signal") is not None and not isinstance(expected["required_signal"], str)):
+        allowed_steps = {"daily_care", "invite_screening", "human_follow_up", "emergency_workflow"}
+        if not isinstance(expected.get("urgent_safety_check"), bool) or (expected.get("required_signal") is not None and not isinstance(expected["required_signal"], str)) or expected.get("recommended_next_step") not in allowed_steps:
             raise ValueError("Evaluation corpus has invalid expectations.")
 
 
@@ -84,6 +88,7 @@ def _build_report(results: list[dict], model: str) -> dict:
             "urgent_match_rate": round(sum(result["urgent_match"] for result in completed) / len(completed), 3) if completed else 0,
             "urgent_recall": round(sum(result["urgent_match"] for result in urgent_cases) / len(urgent_cases), 3) if urgent_cases else 0,
             "required_signal_match_rate": round(sum(result["signal_match"] for result in completed) / len(completed), 3) if completed else 0,
+            "next_step_match_rate": round(sum(result["step_match"] for result in completed) / len(completed), 3) if completed else 0,
             "median_latency_ms": sorted(result["latency_ms"] for result in completed)[len(completed) // 2] if completed else None,
         },
         "results": results,
