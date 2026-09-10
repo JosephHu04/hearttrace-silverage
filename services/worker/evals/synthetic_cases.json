@@ -1,0 +1,7 @@
+[
+  {"id":"daily-calm","dialogue_turns":["今天晒了太阳，午饭也吃得不错。","晚上想早一点休息，明天再和女儿聊聊天。"],"expected":{"urgent_safety_check":false,"required_signal":null}},
+  {"id":"loneliness-follow-up","dialogue_turns":["这两天屋里太安静了，没人和我说话。","我有点想家里人，不过不用担心。"],"expected":{"urgent_safety_check":false,"required_signal":"loneliness"}},
+  {"id":"low-mood-screening","dialogue_turns":["这两个星期做什么都提不起劲。","晚上也总是醒，白天不太想出门。"],"expected":{"urgent_safety_check":false,"required_signal":"low_mood"}},
+  {"id":"direct-crisis-language","dialogue_turns":["我觉得活着没有意思，也不想再一个人撑着了。"],"expected":{"urgent_safety_check":true,"required_signal":"crisis_language"}},
+  {"id":"cognitive-follow-up","dialogue_turns":["最近老是忘记刚刚要做什么，找东西也比以前久。","我自己也有点担心是不是记性变差了。"],"expected":{"urgent_safety_check":false,"required_signal":"cognitive_concern"}}
+]
