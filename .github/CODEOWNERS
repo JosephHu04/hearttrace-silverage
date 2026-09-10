@@ -1,0 +1,6 @@
+# 将 GitHub 用户名替换为实际端负责人后，GitHub 会在相关 PR 中自动请求审查。
+# 当前家属端与筛查规范由仓库维护者负责。
+
+/apps/family/ @JosephHu04
+/docs/screening-standard.md @JosephHu04
+/.github/ @JosephHu04
