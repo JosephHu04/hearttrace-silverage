@@ -5,6 +5,7 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000/api";
 const DEMO_ACTOR = process.env.NEXT_PUBLIC_ELDER_DEMO_ACTOR_ID ?? "elder-demo-001";
 
+type ActivePanel = "home" | "chat" | "time" | "weather" | "news";
 type ChatMessage = { id: string; role: "user" | "assistant"; content: string; at: Date };
 type Weather = {
   location: string;
@@ -38,6 +39,7 @@ function displayTime(date: Date): string {
 }
 
 export default function ElderCompanionPage() {
+  const [activePanel, setActivePanel] = useState<ActivePanel>("home");
   const [now, setNow] = useState(new Date());
   const [status, setStatus] = useState("正在连接");
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -85,8 +87,8 @@ export default function ElderCompanionPage() {
   }, []);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, busy]);
+    if (activePanel === "chat") bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [activePanel, messages, busy]);
 
   useEffect(() => {
     let cancelled = false;
@@ -127,7 +129,7 @@ export default function ElderCompanionPage() {
         socket.onmessage = (event) => {
           const update = JSON.parse(event.data) as ServerEvent;
           if (update.type === "ready") {
-            setStatus("在这里");
+            setStatus("可以使用");
             void Promise.allSettled([loadWeather(), loadNews()]);
           } else if (update.type === "progress") {
             const labels: Record<string, string> = {
@@ -188,53 +190,133 @@ export default function ElderCompanionPage() {
     socketRef.current.send(JSON.stringify({ type: "message", text }));
   }
 
-  const dateText = new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "short" }).format(now);
+  const dateText = new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "long", day: "numeric", weekday: "long" }).format(now);
+  const dayPeriod = now.getHours() < 6 ? "凌晨" : now.getHours() < 12 ? "上午" : now.getHours() < 18 ? "下午" : "晚上";
 
   return (
     <main className="app-shell">
       <header className="topbar">
-        <div className="identity">
-          <span className="avatar" aria-hidden="true">遥</span>
-          <div><h1>遥遥</h1><p><span className="status-dot" />{status}</p></div>
-        </div>
-        <div className="privacy-badge">本次对话不保存</div>
+        <button className="brand" type="button" onClick={() => setActivePanel("home")}>遥遥</button>
+        <p className="welcome">王阿姨，{dayPeriod}好</p>
+        <div className="service-state"><span>{status}</span><small>本次对话不保存</small></div>
       </header>
 
-      <section className="daily-glance" aria-label="今日信息">
-        <article className="glance-card time-card">
-          <p>现在时间</p><strong>{displayTime(now)}</strong><span>{dateText}</span>
-        </article>
-        <article className="glance-card weather-card">
-          <div className="card-heading"><p>今日天气</p><button onClick={() => void loadWeather()} aria-label="刷新天气">↻</button></div>
-          {weather ? (
-            <><div className="weather-main"><strong>{weather.temperature}°</strong><div><span>{weather.description}</span><small>最高 {weather.high}° · 最低 {weather.low}°</small></div></div><footer>{weather.location}{weather.stale ? " · 缓存天气" : ""}</footer></>
-          ) : <div className="empty-card">天气暂时未连接</div>}
-        </article>
-        <article className="glance-card news-card">
-          <div className="card-heading"><p>最新资讯</p><button onClick={() => void loadNews()} aria-label="刷新资讯">↻</button></div>
-          <ol>{news.length ? news.map((item) => <li key={item.url}><a href={item.url} target="_blank" rel="noreferrer">{item.title}<small>{item.source}</small></a></li>) : <li>资讯暂时未连接</li>}</ol>
-        </article>
-      </section>
+      {activePanel === "home" && (
+        <section className="feature-grid" aria-label="主要功能">
+          <button className="feature-tile feature-chat" type="button" onClick={() => setActivePanel("chat")}>
+            <strong>陪我聊聊</strong>
+            <span>点一下，说说心里话</span>
+          </button>
 
-      <section className="conversation" aria-label="对话">
-        <div className="day-divider"><span>今天</span></div>
-        <div className="messages" aria-live="polite">
-          {messages.map((message) => (
-            <article className={`message message-${message.role}`} key={message.id}>
-              <div>{message.content.split("\n").filter(Boolean).map((line, index) => <p key={index}>{line}</p>)}</div>
-              <time>{displayTime(message.at)}</time>
-            </article>
-          ))}
-          {busy && <div className="thinking"><i /><i /><i /><em>{progress}</em></div>}
-          <div ref={bottomRef} />
-        </div>
-      </section>
+          <button className="feature-tile feature-time" type="button" onClick={() => setActivePanel("time")}>
+            <strong className="tile-clock">{displayTime(now)}</strong>
+            <span>现在时间</span>
+          </button>
 
-      <form className="composer" onSubmit={sendMessage}>
-        <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} rows={1} maxLength={8000} placeholder="想说什么都可以……" aria-label="输入消息" disabled={busy} />
-        <button type="submit" disabled={busy || status !== "在这里"} aria-label="发送消息">→</button>
-        <p>Enter 发送 · Shift + Enter 换行</p>
-      </form>
+          <button className="feature-tile feature-weather" type="button" onClick={() => setActivePanel("weather")}>
+            <strong>{weather ? `${weather.temperature}℃` : "今日天气"}</strong>
+            <span>{weather ? `${weather.description} · ${weather.location}` : "点一下查看天气"}</span>
+          </button>
+
+          <button className="feature-tile feature-news" type="button" onClick={() => setActivePanel("news")}>
+            <strong>最新资讯</strong>
+            <span>{news[0]?.title ?? "点一下听听今天的消息"}</span>
+          </button>
+        </section>
+      )}
+
+      {activePanel !== "home" && (
+        <section className={`panel-view panel-${activePanel}`}>
+          <header className="panel-header">
+            <button className="back-button" type="button" onClick={() => setActivePanel("home")}>返回首页</button>
+            <h1>{activePanel === "chat" ? "陪我聊聊" : activePanel === "time" ? "现在时间" : activePanel === "weather" ? "今日天气" : "最新资讯"}</h1>
+          </header>
+
+          {activePanel === "chat" && (
+            <div className="chat-layout">
+              <div className="messages" aria-live="polite">
+                {messages.map((message) => (
+                  <article className={`message message-${message.role}`} key={message.id}>
+                    <div>{message.content.split("\n").filter(Boolean).map((line, index) => <p key={index}>{line}</p>)}</div>
+                    <time>{displayTime(message.at)}</time>
+                  </article>
+                ))}
+                {busy && <div className="thinking" role="status">{progress}</div>}
+                <div ref={bottomRef} />
+              </div>
+              <form className="composer" onSubmit={sendMessage}>
+                <textarea
+                  value={input}
+                  onChange={(event) => setInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey) {
+                      event.preventDefault();
+                      event.currentTarget.form?.requestSubmit();
+                    }
+                  }}
+                  rows={1}
+                  maxLength={8000}
+                  placeholder="点这里输入想说的话"
+                  aria-label="输入消息"
+                  disabled={busy}
+                />
+                <button type="submit" disabled={busy || status !== "可以使用"}>发送</button>
+              </form>
+            </div>
+          )}
+
+          {activePanel === "time" && (
+            <div className="time-view">
+              <strong>{displayTime(now)}</strong>
+              <p>{dayPeriod}</p>
+              <span>{dateText}</span>
+            </div>
+          )}
+
+          {activePanel === "weather" && (
+            <div className="weather-view">
+              {weather ? (
+                <>
+                  <p className="weather-place">{weather.location}</p>
+                  <strong>{weather.temperature}℃</strong>
+                  <h2>{weather.description}</h2>
+                  <div className="weather-facts">
+                    <span>体感温度<br /><b>{weather.apparentTemperature}℃</b></span>
+                    <span>最高温度<br /><b>{weather.high ?? "--"}℃</b></span>
+                    <span>最低温度<br /><b>{weather.low ?? "--"}℃</b></span>
+                    <span>降雨可能<br /><b>{weather.precipitationProbability ?? "--"}%</b></span>
+                  </div>
+                  {weather.stale && <p className="data-note">当前显示最近一次天气信息</p>}
+                </>
+              ) : (
+                <div className="empty-state"><strong>天气暂时没有连接</strong><p>可以稍后再试一次</p></div>
+              )}
+              <button className="refresh-button" type="button" onClick={() => void loadWeather()}>重新查看天气</button>
+            </div>
+          )}
+
+          {activePanel === "news" && (
+            <div className="news-view">
+              {news.length ? (
+                <ol>
+                  {news.map((item, index) => (
+                    <li key={item.url}>
+                      <a href={item.url} target="_blank" rel="noreferrer">
+                        <span>{index + 1}</span>
+                        <strong>{item.title}</strong>
+                        <small>{item.source}</small>
+                      </a>
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <div className="empty-state"><strong>资讯暂时没有连接</strong><p>可以稍后再试一次</p></div>
+              )}
+              <button className="refresh-button" type="button" onClick={() => void loadNews()}>重新查看资讯</button>
+            </div>
+          )}
+        </section>
+      )}
     </main>
   );
 }
