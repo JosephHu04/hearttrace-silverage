@@ -1,4 +1,4 @@
-import type { AuditFilters, AuditListResponse, LoginResult, RegistrationApplication, RegistrationApplicationList, RiskAction, RiskActionResponse, RiskDetail, RiskListResponse } from "./types";
+import type { AuditFilters, AuditListResponse, ElderCandidate, LoginResult, RegistrationApplication, RegistrationApplicationList, RiskAction, RiskActionResponse, RiskDetail, RiskListResponse } from "./types";
 
 const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
@@ -75,10 +75,14 @@ export function getRegistrationApplications(token: string) {
   });
 }
 
-export function reviewRegistrationApplication(token: string, applicationId: string, decision: "approved" | "rejected", note?: string) {
+export function getElderCandidates(token: string) {
+  return request<ElderCandidate[]>("/api/admin/elders", { headers: { Authorization: `Bearer ${token}` } });
+}
+
+export function reviewRegistrationApplication(token: string, applicationId: string, decision: "approved" | "rejected", elderId?: string, note?: string) {
   return request<RegistrationApplication>(`/api/admin/registration-applications/${applicationId}/review`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ decision, note: note?.trim() || null })
+    body: JSON.stringify({ decision, elderId: elderId || null, note: note?.trim() || null })
   });
 }

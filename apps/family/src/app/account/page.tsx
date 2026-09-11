@@ -15,7 +15,8 @@ export default function AccountPage() {
       const result = await loginWithPassword(String(values.get("loginIdentifier")), String(values.get("password")));
       setToken(result.accessToken);
       setName(result.actor.displayName);
-      setNotice("登录验证通过。此演示页不会把令牌保存到浏览器；正式版将使用安全 Cookie 会话。");
+      sessionStorage.setItem("hearttrace.family.session", JSON.stringify({ accessToken: result.accessToken, actor: result.actor }));
+      window.location.assign("/");
     } catch (error) { setNotice(error instanceof Error ? error.message : "登录失败"); }
   };
   const change = async (event: FormEvent<HTMLFormElement>) => {

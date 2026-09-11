@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { demoLogin, getAuditLogs, getRegistrationApplications, getRiskDetail, getRiskQueue, performRiskAction, reviewRegistrationApplication } from "@/lib/admin-api";
-import type { Actor, AuditFilters, AuditListResponse, RegistrationApplication, RiskAction, RiskDetail, RiskListItem, RiskStatus } from "@/lib/types";
+import { demoLogin, getAuditLogs, getElderCandidates, getRegistrationApplications, getRiskDetail, getRiskQueue, performRiskAction, reviewRegistrationApplication } from "@/lib/admin-api";
+import type { Actor, AuditFilters, AuditListResponse, ElderCandidate, RegistrationApplication, RiskAction, RiskDetail, RiskListItem, RiskStatus } from "@/lib/types";
 
 type AdminView = "risk" | "audit" | "registrations";
 
@@ -87,6 +87,8 @@ export default function AdminDashboard() {
   const [auditLoading, setAuditLoading] = useState(false);
   const [applications, setApplications] = useState<RegistrationApplication[]>([]);
   const [reviewingId, setReviewingId] = useState<string | null>(null);
+  const [elderCandidates, setElderCandidates] = useState<ElderCandidate[]>([]);
+  const [selectedElders, setSelectedElders] = useState<Record<string, string>>({});
 
   useEffect(() => {
     let active = true;
@@ -102,6 +104,9 @@ export default function AdminDashboard() {
         const registrationQueue = await getRegistrationApplications(login.accessToken);
         if (!active) return;
         setApplications(registrationQueue.items);
+        const eligibleElders = await getElderCandidates(login.accessToken);
+        if (!active) return;
+        setElderCandidates(eligibleElders);
         if (queue.items[0]) {
           const detail = await getRiskDetail(login.accessToken, queue.items[0].id);
           if (!active) return;
@@ -197,7 +202,7 @@ export default function AdminDashboard() {
     setReviewingId(application.id);
     setError("");
     try {
-      await reviewRegistrationApplication(token, application.id, decision);
+      await reviewRegistrationApplication(token, application.id, decision, selectedElders[application.id]);
       setApplications((current) => current.filter((item) => item.id !== application.id));
       setNotice(decision === "approved" ? "申请已通过，家属账户已激活。" : "申请已驳回，结果已写入审计记录。");
     } catch (cause) {
@@ -391,10 +396,10 @@ export default function AdminDashboard() {
         ) : (
           <section className="registration-panel panel">
             <div className="panel-heading"><div><p>待审核</p><h2>家属注册申请</h2></div><span>{applications.length} 项</span></div>
-            <p className="registration-intro">仅核验申请人身份与关系信息。密码以安全哈希保存，审核人员无法查看。</p>
+            <p className="registration-intro">核验申请人身份与关系，并在通过前确认对应老人。密码以安全哈希保存，审核人员无法查看。</p>
             {loading && <div className="empty">正在读取申请队列…</div>}
             {!loading && applications.length === 0 && <div className="empty">当前没有待审核的注册申请</div>}
-            <div className="application-list">{applications.map((application) => <article key={application.id} className="application-row"><div><strong>{application.displayName}</strong><p>{application.relationship} · 关联老人：{application.elderName}</p><small>{application.loginIdentifier} · 提交于 {formatTime(application.createdAt)}</small></div><div className="registration-actions"><button className="secondary" disabled={reviewingId !== null} onClick={() => { void reviewApplication(application, "rejected"); }}>驳回</button><button className="primary" disabled={reviewingId !== null} onClick={() => { void reviewApplication(application, "approved"); }}>{reviewingId === application.id ? "提交中…" : "通过并激活"}</button></div></article>)}</div>
+            <div className="application-list">{applications.map((application) => <article key={application.id} className="application-row"><div><strong>{application.displayName}</strong><p>{application.relationship} · 申请关联：{application.elderName}</p><small>{application.loginIdentifier} · 提交于 {formatTime(application.createdAt)}</small></div><div className="registration-actions"><select aria-label={`为${application.displayName}选择对应老人`} value={selectedElders[application.id] ?? ""} onChange={(event) => setSelectedElders((current) => ({ ...current, [application.id]: event.target.value }))}><option value="">确认对应老人</option>{elderCandidates.map((elder) => <option key={elder.id} value={elder.id}>{elder.name} · {elder.age} 岁</option>)}</select><button className="secondary" disabled={reviewingId !== null} onClick={() => { void reviewApplication(application, "rejected"); }}>驳回</button><button className="primary" disabled={reviewingId !== null || !selectedElders[application.id]} onClick={() => { void reviewApplication(application, "approved"); }}>{reviewingId === application.id ? "提交中…" : "通过并授权"}</button></div></article>)}</div>
           </section>
         )}
       </section>

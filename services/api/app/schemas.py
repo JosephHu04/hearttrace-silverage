@@ -111,6 +111,13 @@ class RegistrationApplicationListOut(ApiModel):
 class RegistrationReviewRequest(ApiModel):
     decision: RegistrationStatus
     note: Optional[str] = Field(default=None, max_length=500)
+    elder_id: Optional[str] = Field(default=None, max_length=64)
+
+
+class ElderCandidateOut(ApiModel):
+    id: str
+    name: str
+    age: int
 
 
 class PasswordChangeRequest(ApiModel):

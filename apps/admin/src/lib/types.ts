@@ -131,3 +131,5 @@ export type RegistrationApplication = {
 };
 
 export type RegistrationApplicationList = { items: RegistrationApplication[]; total: number };
+
+export type ElderCandidate = { id: string; name: string; age: number };

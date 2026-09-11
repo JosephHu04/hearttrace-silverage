@@ -31,7 +31,7 @@ def test_registration_requires_admin_approval_before_login(client: TestClient, a
     approved = client.post(
         f"/api/admin/registration-applications/{application['id']}/review",
         headers=admin_headers,
-        json={"decision": "approved", "note": "关系核验通过"},
+        json={"decision": "approved", "elderId": "elder-demo-001", "note": "关系核验通过"},
     )
     assert approved.status_code == 200
     assert approved.json()["status"] == "approved"
@@ -39,6 +39,20 @@ def test_registration_requires_admin_approval_before_login(client: TestClient, a
     login = client.post("/api/auth/login", json={"loginIdentifier": "zhao@example.com", "password": "safe-password-2026"})
     assert login.status_code == 200
     assert login.json()["actor"]["role"] == "family"
+    elders = client.get("/api/family/me/elders", headers={"Authorization": f"Bearer {login.json()['accessToken']}"})
+    assert elders.status_code == 200
+    assert elders.json()["items"][0]["id"] == "elder-demo-001"
+
+
+def test_approval_requires_admin_to_confirm_the_elder(client: TestClient, admin_headers: dict[str, str]):
+    application = client.post("/api/auth/registration-applications", json=application_payload()).json()
+    review = client.post(
+        f"/api/admin/registration-applications/{application['id']}/review",
+        headers=admin_headers,
+        json={"decision": "approved"},
+    )
+    assert review.status_code == 400
+    assert review.json()["detail"] == "通过申请时必须确认对应老人"
 
 
 def test_approved_family_can_change_password_and_recovery_request_is_non_enumerating(client: TestClient, admin_headers: dict[str, str]):
@@ -46,7 +60,7 @@ def test_approved_family_can_change_password_and_recovery_request_is_non_enumera
     client.post(
         f"/api/admin/registration-applications/{application['id']}/review",
         headers=admin_headers,
-        json={"decision": "approved"},
+        json={"decision": "approved", "elderId": "elder-demo-001"},
     )
     login = client.post("/api/auth/login", json={"loginIdentifier": "zhao@example.com", "password": "safe-password-2026"}).json()
     changed = client.post(

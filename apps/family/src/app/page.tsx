@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { demoLogin, getFamilyElders, getFamilyToday, recordFamilyAction } from "@/lib/family-api";
+import { getFamilyElders, getFamilyToday, recordFamilyAction } from "@/lib/family-api";
 import { mockFamilyToday } from "@/lib/mock-family-data";
 import type { FamilyAction, FamilyToday } from "@/lib/types";
 
@@ -25,12 +25,6 @@ const pageTitles: Record<PageKey, string> = {
   privacy: "隐私与授权"
 };
 
-const testAccounts = [
-  { actorId: "family-demo-001", label: "林女士 · 陈奶奶" },
-  { actorId: "family-demo-002", label: "王先生 · 李爷爷" },
-  { actorId: "family-no-access-001", label: "无授权账号 · 负向测试" }
-];
-
 function Tag({ children, tone = "calm" }: { children: React.ReactNode; tone?: "calm" | "warm" | "alert" | "safe" }) {
   return <span className={`tag tag-${tone}`}>{children}</span>;
 }
@@ -44,9 +38,8 @@ export default function FamilyDashboard() {
   const [action, setAction] = useState("尚未记录行动");
   const [notice, setNotice] = useState("正在读取已授权的摘要、趋势和安全事件状态。");
   const [today, setToday] = useState<FamilyToday>(mockFamilyToday);
-  const [apiState, setApiState] = useState<"loading" | "connected" | "fallback" | "denied">("loading");
-  const [selectedAccount, setSelectedAccount] = useState(testAccounts[0].actorId);
-  const [actorName, setActorName] = useState("林女士");
+  const [apiState, setApiState] = useState<"loading" | "connected" | "unavailable" | "denied" | "signed_out">("loading");
+  const [actorName, setActorName] = useState("—");
   const [token, setToken] = useState<string | null>(null);
 
   const greeting = useMemo(() => new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "long" }).format(new Date()), []);
@@ -54,39 +47,62 @@ export default function FamilyDashboard() {
   useEffect(() => {
     let active = true;
 
+    const stored = sessionStorage.getItem("hearttrace.family.session");
+    if (!stored) {
+      setApiState("signed_out");
+      setNotice("请先登录已获批的家属账号，再查看授权范围内的信息。");
+      return () => { active = false; };
+    }
+    let session: { accessToken: string; actor: { displayName: string; role: string } };
+    try {
+      session = JSON.parse(stored) as { accessToken: string; actor: { displayName: string; role: string } };
+      if (!session.accessToken || session.actor.role !== "family") throw new Error("invalid family session");
+    } catch {
+      sessionStorage.removeItem("hearttrace.family.session");
+      setApiState("signed_out");
+      setNotice("登录状态无效，请重新登录。");
+      return () => { active = false; };
+    }
+
     setApiState("loading");
     setAction("尚未记录行动");
-    setNotice("正在登录测试账号并读取授权关系。");
-    void demoLogin(selectedAccount)
-      .then(async (login) => {
-        const elders = await getFamilyElders(login.accessToken);
+    setNotice("正在读取已授权的老人关系和今日摘要。");
+    void getFamilyElders(session.accessToken)
+      .then(async (elders) => {
         if (elders.items.length === 0) {
           if (!active) return;
-          setActorName(login.actor.displayName);
-          setToken(login.accessToken);
+          setActorName(session.actor.displayName);
+          setToken(session.accessToken);
           setApiState("denied");
-          setNotice("该测试账号没有任何有效授权，服务端未返回老人数据。负向权限测试通过。");
+          setNotice("该账号暂未获得任何老人的有效授权，服务端未返回老人数据。");
           return;
         }
-        const data = await getFamilyToday(login.accessToken, elders.items[0].id);
+        const data = await getFamilyToday(session.accessToken, elders.items[0].id);
         if (!active) return;
-        setActorName(login.actor.displayName);
-        setToken(login.accessToken);
+        setActorName(session.actor.displayName);
+        setToken(session.accessToken);
         setToday(data);
         setApiState("connected");
-        setNotice(`已使用 ${login.actor.displayName} 的 JWT 读取授权摘要，当前老人：${data.elder.name}。`);
+        setNotice(`已读取授权摘要，当前老人：${data.elder.name}。`);
       })
       .catch(() => {
         if (!active) return;
         setToken(null);
-        setApiState("fallback");
-        setNotice("暂时无法连接核心 API，正在使用本地演示数据。请检查 NEXT_PUBLIC_API_BASE_URL。");
+        setApiState("unavailable");
+        setNotice("暂时无法连接核心 API，未展示任何老人数据。请稍后重试。");
       });
 
     return () => {
       active = false;
     };
-  }, [selectedAccount]);
+  }, []);
+
+  const logout = () => {
+    sessionStorage.removeItem("hearttrace.family.session");
+    setToken(null);
+    setApiState("signed_out");
+    setNotice("你已退出登录。");
+  };
 
   const recordAction = async (nextAction: FamilyAction, label: string) => {
     try {
@@ -123,8 +139,8 @@ export default function FamilyDashboard() {
         </nav>
 
         <div className="sidebar-footer">
-          <span className="live-dot" /> {apiState === "denied" ? "授权状态受限" : "授权状态正常"}
-          <small>{apiState === "connected" ? "已连接核心业务 API" : apiState === "loading" ? "正在连接数据服务" : apiState === "denied" ? "无有效老人授权" : "本地演示数据模式"}</small>
+          <span className="live-dot" /> {apiState === "connected" ? "授权状态正常" : "访问受限"}
+          <small>{apiState === "connected" ? "已连接核心业务 API" : apiState === "loading" ? "正在连接数据服务" : apiState === "denied" ? "无有效老人授权" : apiState === "signed_out" ? "需要登录" : "服务暂不可用"}</small>
         </div>
       </aside>
 
@@ -132,18 +148,15 @@ export default function FamilyDashboard() {
         <header className="topbar">
           <div><p>{greeting}</p><h1>{pageTitles[page]}</h1></div>
           <div className="top-actions">
-            <Tag tone={apiState === "denied" ? "alert" : "safe"}>{apiState === "denied" ? "无查看授权" : "已授权查看"}</Tag>
-            <select className="account-select" aria-label="切换测试账号" value={selectedAccount} onChange={(event) => setSelectedAccount(event.target.value)}>
-              {testAccounts.map((account) => <option key={account.actorId} value={account.actorId}>{account.label}</option>)}
-            </select>
-            <span className="profile">{actorName}</span>
+            <Tag tone={apiState === "connected" ? "safe" : "alert"}>{apiState === "connected" ? "已授权查看" : "暂不可查看"}</Tag>
+            {apiState === "connected" ? <button className="profile" onClick={logout}>{actorName} · 退出</button> : <a className="profile" href="/account">登录家属账号</a>}
           </div>
         </header>
 
         <div className="notice" role="status"><span>i</span>{notice}</div>
 
-        {apiState === "denied" ? (
-          <Card className="access-denied"><Tag tone="alert">访问被拒绝</Tag><h2>当前账号没有已授权的老人</h2><p>这是预期的负向测试结果。页面不会回退展示其他老人的 Mock 数据，也不能提交关怀行动。</p></Card>
+        {apiState !== "connected" ? (
+          <Card className="access-denied"><Tag tone="alert">{apiState === "signed_out" ? "需要登录" : apiState === "denied" ? "暂未授权" : "服务不可用"}</Tag><h2>{apiState === "signed_out" ? "登录后才能查看关怀信息" : apiState === "denied" ? "当前账号暂未获得老人授权" : "暂时无法读取关怀数据"}</h2><p>{apiState === "signed_out" ? "仅已获管理端批准的家属账号可登录。" : "为保护老人隐私，页面不会在异常状态下展示任何模拟或缓存的老人数据。"}</p>{apiState === "signed_out" && <a className="primary" href="/account">前往登录</a>}</Card>
         ) : (
           <>
             {page === "today" && <TodayView today={today} action={action} onAction={recordAction} onNavigate={() => setPage("report")} />}
