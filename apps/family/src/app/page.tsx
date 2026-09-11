@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { getFamilyElders, getFamilyToday, recordFamilyAction } from "@/lib/family-api";
 import { mockFamilyToday } from "@/lib/mock-family-data";
 import type { FamilyAction, FamilyElder, FamilyToday } from "@/lib/types";
@@ -34,6 +35,7 @@ function Card({ children, className = "" }: { children: React.ReactNode; classNa
 }
 
 export default function FamilyDashboard() {
+  const router = useRouter();
   const [page, setPage] = useState<PageKey>("today");
   const [action, setAction] = useState("尚未记录行动");
   const [notice, setNotice] = useState("正在读取已授权的摘要、趋势和安全事件状态。");
@@ -43,8 +45,12 @@ export default function FamilyDashboard() {
   const [apiState, setApiState] = useState<"loading" | "connected" | "unavailable" | "denied" | "signed_out">("loading");
   const [actorName, setActorName] = useState("—");
   const [token, setToken] = useState<string | null>(null);
+  const [sessionChecked, setSessionChecked] = useState(false);
+  const [greeting, setGreeting] = useState("");
 
-  const greeting = useMemo(() => new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "long" }).format(new Date()), []);
+  useEffect(() => {
+    setGreeting(new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "long" }).format(new Date()));
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -52,7 +58,7 @@ export default function FamilyDashboard() {
     const stored = sessionStorage.getItem("hearttrace.family.session");
     if (!stored) {
       setApiState("signed_out");
-      setNotice("请先登录已获批的家属账号，再查看授权范围内的信息。");
+      router.replace("/account");
       return () => { active = false; };
     }
     let session: { accessToken: string; actor: { displayName: string; role: string } };
@@ -62,10 +68,11 @@ export default function FamilyDashboard() {
     } catch {
       sessionStorage.removeItem("hearttrace.family.session");
       setApiState("signed_out");
-      setNotice("登录状态无效，请重新登录。");
+      router.replace("/account");
       return () => { active = false; };
     }
 
+    setSessionChecked(true);
     setApiState("loading");
     setNotice("正在读取已授权的老人关系。");
     void getFamilyElders(session.accessToken)
@@ -94,7 +101,7 @@ export default function FamilyDashboard() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     if (!token || !selectedElderId) return;
@@ -121,7 +128,7 @@ export default function FamilyDashboard() {
     sessionStorage.removeItem("hearttrace.family.session");
     setToken(null);
     setApiState("signed_out");
-    setNotice("你已退出登录。");
+    router.replace("/account");
   };
 
   const recordAction = async (nextAction: FamilyAction, label: string) => {
@@ -140,6 +147,10 @@ export default function FamilyDashboard() {
       setNotice("行动暂未同步到服务端，请在网络恢复后重试。演示数据没有被视为正式记录。");
     }
   };
+
+  if (!sessionChecked) {
+    return <main className="auth-loading" aria-live="polite"><div><span className="auth-loading-mark">心</span><p>正在验证登录状态…</p></div></main>;
+  }
 
   return (
     <main className="app-shell">
@@ -171,10 +182,10 @@ export default function FamilyDashboard() {
 
       <div className="content-shell">
         <header className="topbar">
-          <div><p>{greeting}</p><h1>{pageTitles[page]}</h1></div>
+          <div><p suppressHydrationWarning>{greeting || "今日关怀"}</p><h1>{pageTitles[page]}</h1></div>
           <div className="top-actions">
             <Tag tone={apiState === "connected" ? "safe" : "alert"}>{apiState === "connected" ? "已授权查看" : "暂不可查看"}</Tag>
-            {apiState === "connected" ? <button className="profile" onClick={logout}>{actorName} · 退出</button> : <a className="profile" href="/account">登录家属账号</a>}
+            {apiState === "connected" ? <><a className="profile" href="/account/security">账户安全</a><button className="profile" onClick={logout}>{actorName} · 退出</button></> : <a className="profile" href="/account">登录家属账号</a>}
           </div>
         </header>
 
