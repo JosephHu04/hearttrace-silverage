@@ -18,6 +18,7 @@ from app.services.companion.client import CompanionClient
 from app.services.companion.live_info import build_live_info_result, detect_live_info_kind
 from app.services.companion.policy import plan_care_turn
 from app.services.companion.widgets import WidgetUnavailable, get_news, get_weather
+from app.services.analysis_pipeline import queue_conversation_analysis
 
 
 router = APIRouter(tags=["elder-conversations"])
@@ -163,15 +164,16 @@ def _persist_message(
             return
         session.last_active_at = utc_now()
         if session.save_messages:
-            db.add(
-                ConversationMessage(
-                    session_id=session_id,
-                    role=role,
-                    content=content,
-                    processing=processing,
-                    model=model,
-                )
+            message = ConversationMessage(
+                session_id=session_id,
+                role=role,
+                content=content,
+                processing=processing,
+                model=model,
             )
+            db.add(message)
+            db.flush()
+            queue_conversation_analysis(db, session=session, source_message=message)
         db.commit()
 
 

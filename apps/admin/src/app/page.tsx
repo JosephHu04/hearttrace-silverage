@@ -30,7 +30,12 @@ const auditActionLabels: Record<string, string> = {
   "grant.created": "创建家属授权",
   "grant.update_scopes": "调整授权范围",
   "grant.revoke": "撤销家属授权",
-  "grant.reactivate": "重新启用授权"
+  "grant.reactivate": "重新启用授权",
+  "conversation.analysis_queued": "提交授权会话分析",
+  "analysis.completed": "完成结构化关怀分析",
+  "analysis.skipped": "因授权变化跳过分析",
+  "analysis.failed": "关怀分析任务失败",
+  "analysis.summary_published": "发布已复核家属摘要"
 };
 
 const emergencyStatusLabels: Record<EmergencyStatus, string> = {
@@ -532,6 +537,11 @@ export default function AdminDashboard() {
                   <option value="grant.update_scopes">调整授权范围</option>
                   <option value="grant.revoke">撤销家属授权</option>
                   <option value="grant.reactivate">重新启用授权</option>
+                  <option value="conversation.analysis_queued">提交授权会话分析</option>
+                  <option value="analysis.completed">完成结构化关怀分析</option>
+                  <option value="analysis.skipped">因授权变化跳过分析</option>
+                  <option value="analysis.failed">关怀分析任务失败</option>
+                  <option value="analysis.summary_published">发布已复核家属摘要</option>
                 </select>
               </label>
               <label>操作者 ID
@@ -544,6 +554,10 @@ export default function AdminDashboard() {
                   <option value="elder">老人账号</option>
                   <option value="emergency_event">紧急事件</option>
                   <option value="family_elder_grant">家属授权关系</option>
+                  <option value="conversation_session">陪伴会话</option>
+                  <option value="conversation_analysis">结构化关怀分析</option>
+                  <option value="daily_insight">家属每日摘要</option>
+                  <option value="outbox_event">异步任务事件</option>
                 </select>
               </label>
               <label>对象 ID
