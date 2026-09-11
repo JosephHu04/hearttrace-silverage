@@ -181,6 +181,28 @@ class MessageOut(ApiModel):
     message: str
 
 
+class ConversationSessionCreate(ApiModel):
+    save_messages: bool = False
+    allow_analysis: bool = False
+
+
+class ConversationSessionOut(ApiModel):
+    id: str
+    elder_id: str
+    save_messages: bool
+    allow_analysis: bool
+    created_at: datetime
+    last_active_at: datetime
+
+
+class ConversationMessageOut(ApiModel):
+    role: str
+    content: str
+    processing: Optional[str]
+    model: Optional[str]
+    created_at: datetime
+
+
 class RiskListItem(ApiModel):
     id: str
     elder_id: str

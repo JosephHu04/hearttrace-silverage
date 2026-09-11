@@ -73,6 +73,31 @@ class ElderProfile(Base):
     age: Mapped[int] = mapped_column(Integer)
 
 
+class ConversationSession(Base):
+    __tablename__ = "conversation_sessions"
+    __table_args__ = (Index("ix_conversation_sessions_elder_time", "elder_id", "created_at"),)
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=uuid_string)
+    elder_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    save_messages: Mapped[bool] = mapped_column(Boolean, default=False)
+    allow_analysis: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    last_active_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class ConversationMessage(Base):
+    __tablename__ = "conversation_messages"
+    __table_args__ = (Index("ix_conversation_messages_session_time", "session_id", "created_at"),)
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=uuid_string)
+    session_id: Mapped[str] = mapped_column(ForeignKey("conversation_sessions.id"), index=True)
+    role: Mapped[str] = mapped_column(String(16))
+    content: Mapped[str] = mapped_column(Text)
+    processing: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    model: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class FamilyElderGrant(Base):
     __tablename__ = "family_elder_grants"
 

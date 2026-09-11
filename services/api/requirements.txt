@@ -5,3 +5,4 @@ alembic>=1.16,<2
 pydantic-settings>=2.10,<3
 PyJWT>=2.10,<3
 psycopg[binary]>=3.2,<4
+openai>=1.99,<2
