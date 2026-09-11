@@ -23,6 +23,9 @@
 | --- | --- | --- |
 | `GET /api/health` | 公开 | 服务健康检查 |
 | `POST /api/auth/demo-login` | 比赛开发环境 | 为预置合成账号签发短期 JWT |
+| `GET /api/family/me/elders` | family | 只列出当前家属拥有有效授权的老人 |
+| `GET /api/family/elders/{id}/today` | family | 返回授权后的结构化今日摘要；访问会审计 |
+| `POST /api/family/risk-events/{id}/actions` | family | 幂等记录联系、视频计划或转介请求；写入审计 |
 | `GET /api/admin/risk-events` | admin、professional | 风险队列，支持 level、status、page、perPage |
 | `GET /api/admin/risk-events/{id}` | admin、professional | 结构化证据、版本和处置时间线；访问会审计 |
 | `POST /api/admin/risk-events/{id}/actions` | admin、professional | 按状态机执行复核动作 |
@@ -44,3 +47,14 @@
 - `request_action`、`escalate`、`resolve`、`mark_false_positive`、`reopen` 必须填写复核说明。
 - 状态变更、处置动作和审计日志在同一数据库事务中提交。
 - 详情只返回趋势、量表与模型候选信号等结构化证据，不返回原始聊天全文。
+
+家属行动请求示例：
+
+```json
+{
+  "requestId": "客户端生成的唯一请求 ID",
+  "action": "contacted"
+}
+```
+
+家属接口不会信任前端传入的老人关系或授权 scope。服务端从 JWT 获取家属身份，并在每次读取和写入时校验 `family_elder_grants`；未授权访问返回 403。

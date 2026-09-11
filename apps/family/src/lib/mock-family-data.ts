@@ -22,5 +22,6 @@ export const mockFamilyToday: FamilyToday = {
   safety: {
     hasActiveEmergency: false,
     message: "暂无紧急安全事件"
-  }
+  },
+  riskEventId: "risk-demo-001"
 };
