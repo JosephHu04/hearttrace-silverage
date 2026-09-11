@@ -251,6 +251,86 @@ class FamilyActionResult(ApiModel):
     duplicate: bool = False
 
 
+class EmergencySource(str, Enum):
+    elder_button = "elder_button"
+    device_button = "device_button"
+
+
+class EmergencyStatus(str, Enum):
+    open = "open"
+    acknowledged = "acknowledged"
+    resolved = "resolved"
+    cancelled = "cancelled"
+
+
+class EmergencyActionType(str, Enum):
+    acknowledge = "acknowledge"
+    resolve = "resolve"
+    cancel = "cancel"
+    reopen = "reopen"
+
+
+class EmergencyCreateRequest(ApiModel):
+    request_id: str = Field(min_length=8, max_length=100)
+    elder_id: Optional[str] = Field(default=None, max_length=64)
+    source: EmergencySource
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+class EmergencyEventOut(ApiModel):
+    id: str
+    elder_id: str
+    elder_name: str
+    trigger_actor_id: str
+    source: EmergencySource
+    status: EmergencyStatus
+    note: Optional[str]
+    acknowledged_by: Optional[str]
+    acknowledged_at: Optional[datetime]
+    resolved_by: Optional[str]
+    resolved_at: Optional[datetime]
+    version: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class EmergencyCreateResult(ApiModel):
+    event: EmergencyEventOut
+    duplicate: bool = False
+
+
+class EmergencyListOut(ApiModel):
+    items: list[EmergencyEventOut]
+    page: int
+    per_page: int
+    total: int
+
+
+class EmergencyActionRequest(ApiModel):
+    request_id: str = Field(min_length=8, max_length=100)
+    action: EmergencyActionType
+    expected_version: int = Field(ge=1)
+    note: Optional[str] = Field(default=None, max_length=1000)
+
+
+class EmergencyActionOut(ApiModel):
+    id: str
+    request_id: str
+    actor_id: str
+    action: EmergencyActionType
+    note: Optional[str]
+    from_status: EmergencyStatus
+    to_status: EmergencyStatus
+    event_version: int
+    created_at: datetime
+
+
+class EmergencyActionResult(ApiModel):
+    event: EmergencyEventOut
+    action: EmergencyActionOut
+    duplicate: bool = False
+
+
 class AuditLogOut(ApiModel):
     id: str
     actor_id: str

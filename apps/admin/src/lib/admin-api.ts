@@ -1,4 +1,4 @@
-import type { AuditFilters, AuditListResponse, LoginResult, RegistrationApplication, RegistrationApplicationList, RiskAction, RiskActionResponse, RiskDetail, RiskListResponse } from "./types";
+import type { AuditFilters, AuditListResponse, EmergencyAction, EmergencyActionResponse, EmergencyListResponse, LoginResult, RegistrationApplication, RegistrationApplicationList, RiskAction, RiskActionResponse, RiskDetail, RiskListResponse } from "./types";
 
 const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
@@ -80,5 +80,30 @@ export function reviewRegistrationApplication(token: string, applicationId: stri
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
     body: JSON.stringify({ decision, note: note?.trim() || null })
+  });
+}
+
+export function getEmergencyQueue(token: string) {
+  return request<EmergencyListResponse>("/api/admin/emergency-events?perPage=50", {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
+export function performEmergencyAction(
+  token: string,
+  eventId: string,
+  action: EmergencyAction,
+  expectedVersion: number,
+  note?: string
+) {
+  return request<EmergencyActionResponse>(`/api/admin/emergency-events/${eventId}/actions`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({
+      requestId: crypto.randomUUID(),
+      action,
+      expectedVersion,
+      note: note?.trim() || null
+    })
   });
 }

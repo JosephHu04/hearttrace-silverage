@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | `POST /api/conversations/sessions` | 老人端 | 创建会话并校验保存与分析授权 |
 | `WS /api/realtime/conversation` | 老人端 | 流式文本与语音陪伴 |
-| `POST /api/emergency/events` | 老人端、设备端 | 创建一键呼救或设备求助事件 |
+| `POST /api/emergency/events` | 老人端、绑定设备 | 创建一键呼救或设备求助事件；使用 requestId 幂等防重 |
 | `POST /api/video-link/requests` | 老人端 | 交接至已绑定的微信联系人或电话路径 |
 | `WS /api/devices/{id}/telemetry` | 硬件端 | 设备心跳、按键状态和跌倒候选事件 |
 | `GET /api/family/elders/{id}/today` | 家属端 | 今日摘要、趋势、待办和紧急事件状态 |
@@ -47,6 +47,8 @@
 | `GET /api/admin/risk-events/{id}` | admin、professional | 结构化证据、版本和处置时间线；访问会审计 |
 | `POST /api/admin/risk-events/{id}/actions` | admin、professional | 按状态机执行复核动作 |
 | `GET /api/admin/audit-logs` | admin、professional（暂定） | 按 actorId、action、targetType、targetId 查询审计，支持分页 |
+| `GET /api/admin/emergency-events` | admin、professional | 查询紧急事件队列，支持 status、elderId 和分页 |
+| `POST /api/admin/emergency-events/{id}/actions` | admin、professional | 确认、解除、取消或重新打开紧急事件 |
 
 处置请求示例：
 
@@ -75,3 +77,15 @@
 ```
 
 家属接口不会信任前端传入的老人关系或授权 scope。服务端从 JWT 获取家属身份，并在每次读取和写入时校验 `family_elder_grants`；未授权访问返回 403。
+
+## 已实现：紧急求助纵向切片
+
+老人账号只能为本人创建 `elder_button` 求助；设备账号只能为已绑定老人创建 `device_button` 求助。创建请求必须包含 8 至 100 字符的 `requestId`，重复提交返回原事件且不会重复写入审计。
+
+管理端处置状态机为：
+
+- `open -> acknowledged`：工作人员确认已收到；
+- `open/acknowledged -> resolved/cancelled`：解除或取消，必须填写处置说明；
+- `resolved/cancelled -> open`：重新打开，必须填写说明。
+
+管理端操作必须携带 `expectedVersion`，过期版本返回 409。创建与每次状态变化都会写入审计；家属今日摘要会基于活动事件实时返回安全状态，不依赖静态演示字段。接口不接收精确位置、聊天原文或健康原文。
