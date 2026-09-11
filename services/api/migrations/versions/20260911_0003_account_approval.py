@@ -37,9 +37,10 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(["reviewed_by"], ["users.id"]),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("login_identifier"),
     )
     op.create_index("ix_registration_applications_queue", "registration_applications", ["status", "created_at"], unique=False)
+    op.create_index("ix_registration_applications_login_identifier", "registration_applications", ["login_identifier"], unique=True)
+    op.create_index(op.f("ix_registration_applications_status"), "registration_applications", ["status"], unique=False)
     op.create_table(
         "password_recovery_tokens",
         sa.Column("id", sa.String(length=64), nullable=False),
@@ -53,11 +54,15 @@ def upgrade() -> None:
         sa.UniqueConstraint("token_hash"),
     )
     op.create_index("ix_password_recovery_tokens_lookup", "password_recovery_tokens", ["token_hash", "expires_at"], unique=False)
+    op.create_index(op.f("ix_password_recovery_tokens_user_id"), "password_recovery_tokens", ["user_id"], unique=False)
 
 
 def downgrade() -> None:
     op.drop_index("ix_password_recovery_tokens_lookup", table_name="password_recovery_tokens")
+    op.drop_index(op.f("ix_password_recovery_tokens_user_id"), table_name="password_recovery_tokens")
     op.drop_table("password_recovery_tokens")
+    op.drop_index(op.f("ix_registration_applications_status"), table_name="registration_applications")
+    op.drop_index("ix_registration_applications_login_identifier", table_name="registration_applications")
     op.drop_index("ix_registration_applications_queue", table_name="registration_applications")
     op.drop_table("registration_applications")
     op.drop_index("uq_users_login_identifier", table_name="users")

@@ -20,12 +20,13 @@ def uuid_string() -> str:
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (Index("uq_users_login_identifier", "login_identifier", unique=True),)
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     display_name: Mapped[str] = mapped_column(String(100))
     role: Mapped[str] = mapped_column(String(32), index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    login_identifier: Mapped[Optional[str]] = mapped_column(String(120), unique=True, nullable=True)
+    login_identifier: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     password_hash: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
     password_changed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
@@ -33,11 +34,14 @@ class User(Base):
 
 class RegistrationApplication(Base):
     __tablename__ = "registration_applications"
-    __table_args__ = (Index("ix_registration_applications_queue", "status", "created_at"),)
+    __table_args__ = (
+        Index("ix_registration_applications_queue", "status", "created_at"),
+        Index("ix_registration_applications_login_identifier", "login_identifier", unique=True),
+    )
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=uuid_string)
     display_name: Mapped[str] = mapped_column(String(100))
-    login_identifier: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    login_identifier: Mapped[str] = mapped_column(String(120))
     relationship: Mapped[str] = mapped_column(String(80))
     elder_name: Mapped[str] = mapped_column(String(100))
     password_hash: Mapped[str] = mapped_column(String(256))
