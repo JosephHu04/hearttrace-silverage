@@ -44,6 +44,7 @@ class RegistrationApplication(Base):
     login_identifier: Mapped[str] = mapped_column(String(120))
     relationship: Mapped[str] = mapped_column(String(80))
     elder_name: Mapped[str] = mapped_column(String(100))
+    elder_id: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id"), nullable=True)
     password_hash: Mapped[str] = mapped_column(String(256))
     consent_version: Mapped[str] = mapped_column(String(32))
     status: Mapped[str] = mapped_column(String(24), default="pending", index=True)
@@ -78,6 +79,23 @@ class FamilyElderGrant(Base):
     family_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
     elder_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
     scopes: Mapped[list[str]] = mapped_column(JSON, default=list)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    relationship: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    consent_version: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    created_by: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    updated_by: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    revoked_by: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class DeviceElderBinding(Base):
+    __tablename__ = "device_elder_bindings"
+
+    device_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    elder_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
@@ -162,6 +180,49 @@ class FamilyActionRecord(Base):
     risk_event_id: Mapped[str] = mapped_column(ForeignKey("risk_events.id"))
     family_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
     action: Mapped[str] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class EmergencyEvent(Base):
+    __tablename__ = "emergency_events"
+    __table_args__ = (
+        UniqueConstraint("request_id", name="uq_emergency_events_request_id"),
+        Index("ix_emergency_events_queue", "status", "created_at"),
+        Index("ix_emergency_events_elder_time", "elder_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=uuid_string)
+    request_id: Mapped[str] = mapped_column(String(100))
+    elder_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    trigger_actor_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    source: Mapped[str] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(24), default="open")
+    note: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    acknowledged_by: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    acknowledged_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_by: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class EmergencyAction(Base):
+    __tablename__ = "emergency_actions"
+    __table_args__ = (
+        UniqueConstraint("request_id", name="uq_emergency_actions_request_id"),
+        Index("ix_emergency_actions_event_time", "emergency_event_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=uuid_string)
+    request_id: Mapped[str] = mapped_column(String(100))
+    emergency_event_id: Mapped[str] = mapped_column(ForeignKey("emergency_events.id"))
+    actor_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    action: Mapped[str] = mapped_column(String(24))
+    note: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
+    from_status: Mapped[str] = mapped_column(String(24))
+    to_status: Mapped[str] = mapped_column(String(24))
+    event_version: Mapped[int] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 

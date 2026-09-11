@@ -11,6 +11,8 @@
 | `family-no-access-001` | 家属 | 无 | 验证无授权时不泄露老人数据 |
 | `staff-admin-001` | 管理员（周老师） | 不适用 | 在管理端核对风险队列和审计 |
 | `staff-professional-001` | 专业人员（许老师） | 不适用 | 验证工作人员角色 |
+| `elder-demo-001` | 老人（陈奶奶） | 本人 | 验证老人端一键求助 |
+| `device-demo-001` | 设备（客厅求助键） | 陈奶奶 `elder-demo-001` | 验证绑定设备求助和设备越权隔离 |
 
 ## 启动
 
@@ -43,6 +45,24 @@ npm run dev
 3. 选择无授权账号，应显示访问被拒绝页，不得回退展示任何老人的 Mock 数据。
 4. 使用管理员令牌查询审计日志：`targetType=elder&targetId=elder-demo-001` 应看到 `family.today_viewed`；`targetType=risk_event&targetId=risk-demo-001` 应看到 `family.contacted`。
 5. 停止后端后刷新家属端，应明确显示“本地演示数据模式”，用于验证降级提示，不应把 Mock 行动视为正式记录。
+
+## 紧急求助接口联调
+
+1. 使用 `elder-demo-001` 登录并调用 `POST /api/emergency/events`，传入唯一 `requestId` 和 `source=elder_button`；重复提交应返回同一事件并标记 `duplicate=true`。
+2. 家属端刷新陈奶奶今日摘要，应显示活动紧急事件；无授权家属仍不得读取该摘要。
+3. 管理员通过 `GET /api/admin/emergency-events?status=open` 找到事件，依次提交 `acknowledge` 和带说明的 `resolve`。
+4. 家属端在确认后应显示“正在持续跟进”，解除后应恢复“暂无紧急安全事件”。
+5. 管理员在审计台按对象类型 `emergency_event` 和对象 ID 查询，应看到 `emergency.created`、`emergency.acknowledge`、`emergency.resolve`。
+6. 使用 `device-demo-001` 可为陈奶奶创建 `device_button` 求助，但为 `elder-demo-002` 创建必须返回 403。
+
+## 家属注册与授权联调
+
+1. 在家属注册页提交合成申请；审核前使用申请密码登录应返回 401。
+2. 管理端“注册审核”必须先从系统老人账号中选择核验对象，未选择时不能通过。
+3. 选择 `elder-demo-001` 并通过后，新家属应能登录且只能看到陈奶奶，不能访问李爷爷。
+4. 在“关系与授权”取消“关怀行动记录”并保存；新家属仍可查看摘要，但提交关怀行动应返回 403。
+5. 填写原因并撤销授权；无需重新登录，家属老人列表应立即为空，摘要访问返回 403。
+6. 填写重新核验说明并启用授权；访问恢复，审计台应显示 `grant.created`、`grant.update_scopes`、`grant.revoke` 和 `grant.reactivate`。
 
 ## 自动验证
 

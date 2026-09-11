@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import (
     DailyInsight,
+    DeviceElderBinding,
     ElderProfile,
     FamilyElderGrant,
     RiskEvent,
@@ -33,6 +34,7 @@ def seed_demo_data(db: Session) -> None:
             User(id="family-no-access-001", display_name="无授权测试账号", role="family"),
             User(id="elder-demo-001", display_name="陈奶奶", role="elder"),
             User(id="elder-demo-002", display_name="李爷爷", role="elder"),
+            User(id="device-demo-001", display_name="陈奶奶客厅求助键", role="device_operator"),
         ],
     )
     db.flush()
@@ -41,8 +43,9 @@ def seed_demo_data(db: Session) -> None:
         [
             ElderProfile(user_id="elder-demo-001", age=82),
             ElderProfile(user_id="elder-demo-002", age=76),
-            FamilyElderGrant(family_id="family-demo-001", elder_id="elder-demo-001", scopes=["daily_summary", "care_actions"]),
-            FamilyElderGrant(family_id="family-demo-002", elder_id="elder-demo-002", scopes=["daily_summary", "care_actions"]),
+            FamilyElderGrant(family_id="family-demo-001", elder_id="elder-demo-001", scopes=["daily_summary", "care_actions"], relationship="女儿", consent_version="demo-consent-v1", created_by="staff-admin-001", updated_by="staff-admin-001", updated_at=now),
+            FamilyElderGrant(family_id="family-demo-002", elder_id="elder-demo-002", scopes=["daily_summary", "care_actions"], relationship="儿子", consent_version="demo-consent-v1", created_by="staff-admin-001", updated_by="staff-admin-001", updated_at=now),
+            DeviceElderBinding(device_id="device-demo-001", elder_id="elder-demo-001"),
         ],
     )
     add_missing(

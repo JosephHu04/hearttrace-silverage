@@ -1,4 +1,4 @@
-import type { AuditFilters, AuditListResponse, ElderCandidate, LoginResult, RegistrationApplication, RegistrationApplicationList, RiskAction, RiskActionResponse, RiskDetail, RiskListResponse } from "./types";
+import type { AuditFilters, AuditListResponse, AuthorizationScope, ElderAccountList, EmergencyAction, EmergencyActionResponse, EmergencyListResponse, FamilyGrant, FamilyGrantList, GrantAction, LoginResult, RegistrationApplication, RegistrationApplicationList, RiskAction, RiskActionResponse, RiskDetail, RiskListResponse } from "./types";
 
 const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
@@ -75,14 +75,51 @@ export function getRegistrationApplications(token: string) {
   });
 }
 
-export function getElderCandidates(token: string) {
-  return request<ElderCandidate[]>("/api/admin/elders", { headers: { Authorization: `Bearer ${token}` } });
-}
-
 export function reviewRegistrationApplication(token: string, applicationId: string, decision: "approved" | "rejected", elderId?: string, note?: string) {
   return request<RegistrationApplication>(`/api/admin/registration-applications/${applicationId}/review`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ decision, elderId: elderId || null, note: note?.trim() || null })
+    body: JSON.stringify({ decision, elderId: elderId || null, scopes: ["daily_summary", "care_actions"], note: note?.trim() || null })
+  });
+}
+
+export function getElderAccounts(token: string) {
+  return request<ElderAccountList>("/api/admin/elders", { headers: { Authorization: `Bearer ${token}` } });
+}
+
+export function getFamilyGrants(token: string) {
+  return request<FamilyGrantList>("/api/admin/family-grants", { headers: { Authorization: `Bearer ${token}` } });
+}
+
+export function changeFamilyGrant(token: string, grant: FamilyGrant, action: GrantAction, scopes?: AuthorizationScope[], note?: string) {
+  return request<FamilyGrant>(`/api/admin/family-grants/${grant.familyId}/${grant.elderId}/actions`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ action, expectedVersion: grant.version, scopes: scopes ?? null, note: note?.trim() || null })
+  });
+}
+
+export function getEmergencyQueue(token: string) {
+  return request<EmergencyListResponse>("/api/admin/emergency-events?perPage=50", {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
+export function performEmergencyAction(
+  token: string,
+  eventId: string,
+  action: EmergencyAction,
+  expectedVersion: number,
+  note?: string
+) {
+  return request<EmergencyActionResponse>(`/api/admin/emergency-events/${eventId}/actions`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({
+      requestId: crypto.randomUUID(),
+      action,
+      expectedVersion,
+      note: note?.trim() || null
+    })
   });
 }

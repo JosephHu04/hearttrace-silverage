@@ -6,7 +6,7 @@ def application_payload() -> dict[str, str]:
         "displayName": "赵女士",
         "loginIdentifier": "zhao@example.com",
         "relationship": "子女",
-        "elderName": "赵爷爷",
+        "elderName": "陈奶奶",
         "password": "safe-password-2026",
         "consentVersion": "family-registration-v1",
     }
@@ -52,7 +52,7 @@ def test_approval_requires_admin_to_confirm_the_elder(client: TestClient, admin_
         json={"decision": "approved"},
     )
     assert review.status_code == 400
-    assert review.json()["detail"] == "通过申请时必须确认对应老人"
+    assert review.json()["detail"] == "通过申请前必须选择已核验的老人账号"
 
 
 def test_approved_family_can_change_password_and_recovery_request_is_non_enumerating(client: TestClient, admin_headers: dict[str, str]):

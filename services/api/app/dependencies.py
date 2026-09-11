@@ -49,6 +49,15 @@ def require_risk_staff(actor: CurrentActor) -> User:
 RiskStaff = Annotated[User, Depends(require_risk_staff)]
 
 
+def require_admin(actor: CurrentActor) -> User:
+    if actor.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="当前角色无权管理账号与授权")
+    return actor
+
+
+AdminActor = Annotated[User, Depends(require_admin)]
+
+
 def require_family(actor: CurrentActor) -> User:
     if actor.role != "family":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="当前角色不是家属账号")
@@ -56,3 +65,12 @@ def require_family(actor: CurrentActor) -> User:
 
 
 FamilyActor = Annotated[User, Depends(require_family)]
+
+
+def require_emergency_actor(actor: CurrentActor) -> User:
+    if actor.role not in {"elder", "device_operator"}:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="当前角色不能发起紧急求助")
+    return actor
+
+
+EmergencyActor = Annotated[User, Depends(require_emergency_actor)]
