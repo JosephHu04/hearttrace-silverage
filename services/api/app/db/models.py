@@ -98,6 +98,51 @@ class ConversationMessage(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class OutboxEvent(Base):
+    __tablename__ = "outbox_events"
+    __table_args__ = (
+        Index("ix_outbox_events_delivery", "event_type", "status", "available_at"),
+        Index("uq_outbox_events_dedupe_key", "dedupe_key", unique=True),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=uuid_string)
+    event_type: Mapped[str] = mapped_column(String(80), index=True)
+    aggregate_type: Mapped[str] = mapped_column(String(40))
+    aggregate_id: Mapped[str] = mapped_column(String(64))
+    dedupe_key: Mapped[str] = mapped_column(String(160))
+    payload_json: Mapped[dict[str, object]] = mapped_column("payload", JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(24), default="pending", index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    locked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    processed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class ConversationAnalysis(Base):
+    __tablename__ = "conversation_analyses"
+    __table_args__ = (
+        Index("ix_conversation_analyses_elder_time", "elder_id", "created_at"),
+        Index("uq_conversation_analyses_source_message", "source_message_id", unique=True),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=uuid_string)
+    session_id: Mapped[str] = mapped_column(ForeignKey("conversation_sessions.id"), index=True)
+    source_message_id: Mapped[str] = mapped_column(ForeignKey("conversation_messages.id"))
+    elder_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    candidate_signals: Mapped[list[str]] = mapped_column(JSON, default=list)
+    urgent_safety_check: Mapped[bool] = mapped_column(Boolean, default=False)
+    recommended_next_step: Mapped[str] = mapped_column(String(40))
+    family_summary: Mapped[str] = mapped_column(String(300))
+    evidence_message_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    model_version: Mapped[str] = mapped_column(String(80))
+    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class FamilyElderGrant(Base):
     __tablename__ = "family_elder_grants"
 
@@ -127,10 +172,16 @@ class DeviceElderBinding(Base):
 
 class DailyInsight(Base):
     __tablename__ = "daily_insights"
-    __table_args__ = (Index("ix_daily_insights_elder_time", "elder_id", "created_at"),)
+    __table_args__ = (
+        Index("ix_daily_insights_elder_time", "elder_id", "created_at"),
+        Index("uq_daily_insights_source_analysis", "source_analysis_id", unique=True),
+    )
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=uuid_string)
     elder_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    source_analysis_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("conversation_analyses.id"), nullable=True
+    )
     level: Mapped[str] = mapped_column(String(16))
     label: Mapped[str] = mapped_column(String(100))
     headline: Mapped[str] = mapped_column(String(300))
@@ -145,10 +196,16 @@ class DailyInsight(Base):
 
 class RiskEvent(Base):
     __tablename__ = "risk_events"
-    __table_args__ = (Index("ix_risk_events_queue", "level", "status", "created_at"),)
+    __table_args__ = (
+        Index("ix_risk_events_queue", "level", "status", "created_at"),
+        Index("uq_risk_events_source_analysis", "source_analysis_id", unique=True),
+    )
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     elder_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    source_analysis_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("conversation_analyses.id"), nullable=True
+    )
     level: Mapped[str] = mapped_column(String(16), index=True)
     status: Mapped[str] = mapped_column(String(32), index=True)
     title: Mapped[str] = mapped_column(String(200))

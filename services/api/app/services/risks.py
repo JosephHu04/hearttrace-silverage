@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import RiskAction, RiskEvent, RiskEvidence, User, utc_now
 from app.schemas import RiskActionRequest
+from app.services.analysis_pipeline import publish_confirmed_analysis_summary
 from app.services.audit import add_audit_log
 
 
@@ -159,6 +160,8 @@ def apply_action(
         target_id=event.id,
         metadata={"fromStatus": previous_status, "toStatus": next_status, "eventVersion": next_version},
     )
+    if action_name == "request_action":
+        publish_confirmed_analysis_summary(db, risk_event=event, actor_id=actor.id)
     try:
         db.commit()
     except Exception:

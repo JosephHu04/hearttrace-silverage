@@ -1,6 +1,6 @@
 # 核心业务 API
 
-当前实现老人陪伴、风险复核、家属关怀、账号审批、关系授权和紧急求助纵向切片：身份认证、服务端 RBAC、会话授权、授权关系、幂等处置、乐观锁和审计共用同一业务后端。
+当前实现老人陪伴、授权会话分析、风险复核、家属关怀、账号审批、关系授权和紧急求助纵向切片：身份认证、服务端 RBAC、会话授权、事务 Outbox、授权关系、幂等处置、乐观锁和审计共用同一业务后端。
 
 ## 本地启动
 
@@ -21,7 +21,7 @@ alembic upgrade head
 
 OpenAPI 地址为 `http://localhost:8000/docs`，健康检查为 `GET /api/health`。
 
-实时陪伴使用 `DASHSCOPE_COMPANION_MODEL`（默认 `qwen3.8-flash`）和 8 秒截止时间；异步分析仍使用 `DASHSCOPE_MODEL`（默认 `qwen-plus`）。真实 API Key 只能放在本机环境或密钥管理服务中。
+实时陪伴使用 `DASHSCOPE_COMPANION_MODEL`（默认 `qwen3.8-flash`）和 8 秒截止时间；异步分析使用 `DASHSCOPE_MODEL`（默认 `qwen-plus`）。只有 `saveMessages=true` 与 `allowAnalysis=true` 同时成立时，助手回复落库事务才会创建只含 ID 引用的分析事件；Outbox 不保存对话原文。真实 API Key 只能放在本机环境或密钥管理服务中。
 
 ## 演示登录
 
@@ -39,4 +39,4 @@ OpenAPI 地址为 `http://localhost:8000/docs`，健康检查为 `GET /api/healt
 pytest
 ```
 
-测试覆盖老人会话所有权与保存授权、WebSocket 组件回复、角色越权、注册后授权可用性、授权即时撤销、家属与设备绑定隔离、风险及紧急事件状态机、幂等写入、版本冲突和审计留痕。
+测试覆盖老人会话所有权与保存授权、分析授权双门槛、Outbox 原文隔离、Worker 重试、人工确认后摘要发布、WebSocket 组件回复、角色越权、注册后授权可用性、授权即时撤销、家属与设备绑定隔离、风险及紧急事件状态机、幂等写入、版本冲突和审计留痕。

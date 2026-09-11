@@ -74,3 +74,19 @@ alembic check
 cd ../../apps/family
 npm run build
 ```
+
+## 授权分析闭环联调
+
+1. 使用老人账号创建 `saveMessages=true`、`allowAnalysis=true` 的会话并完成一轮合成对话；数据库应新增 `conversation.analysis.requested` Outbox，payload 只含会话和消息 ID。
+2. 设置与 API 相同的 `DATABASE_URL` 以及本机 `DASHSCOPE_API_KEY`，运行 `python3 services/worker/analysis_worker.py --once`。
+3. 输出应包含 `analysisId`；若候选需要人工跟进，还应包含 `riskEventId`。管理端风险详情只显示候选标签，不显示对话原文。
+4. 管理员依次执行“认领”“开始复核”“要求跟进”，并填写人工判断说明。
+5. 林女士刷新陈奶奶页面后，应看到工作人员确认过的新摘要；审计台应出现 `conversation.analysis_queued`、`analysis.completed` 和 `analysis.summary_published`。
+6. 在 Worker 处理前撤回该会话的分析授权，任务应标记为 skipped，模型不得被调用，也不得产生分析记录。
+
+无需真实模型即可运行自动闭环回归：
+
+```bash
+cd services/api
+pytest tests/test_analysis_pipeline.py
+```
