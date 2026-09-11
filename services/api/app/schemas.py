@@ -295,6 +295,19 @@ class FamilyTopicOut(ApiModel):
 class FamilySafetyOut(ApiModel):
     has_active_emergency: bool
     message: str
+    status: Optional[EmergencyStatus] = None
+    source: Optional[EmergencySource] = None
+    triggered_at: Optional[datetime] = None
+
+
+class FamilyActionHistoryOut(ApiModel):
+    action: FamilyActionType
+    recorded_at: datetime
+
+
+class FamilyAccessOut(ApiModel):
+    scopes: list[AuthorizationScope]
+    care_actions_allowed: bool
 
 
 class FamilyTodayOut(ApiModel):
@@ -303,6 +316,8 @@ class FamilyTodayOut(ApiModel):
     topics: list[FamilyTopicOut]
     safety: FamilySafetyOut
     risk_event_id: Optional[str]
+    access: FamilyAccessOut
+    recent_actions: list[FamilyActionHistoryOut]
 
 
 class FamilyActionType(str, Enum):

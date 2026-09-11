@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { getFamilyElders, getFamilyToday, recordFamilyAction } from "@/lib/family-api";
 import { mockFamilyToday } from "@/lib/mock-family-data";
-import type { FamilyAction, FamilyToday } from "@/lib/types";
+import type { FamilyAction, FamilyElder, FamilyToday } from "@/lib/types";
 
 type PageKey = "today" | "report" | "trend" | "risk" | "plan" | "privacy";
 
@@ -34,15 +35,22 @@ function Card({ children, className = "" }: { children: React.ReactNode; classNa
 }
 
 export default function FamilyDashboard() {
+  const router = useRouter();
   const [page, setPage] = useState<PageKey>("today");
   const [action, setAction] = useState("尚未记录行动");
   const [notice, setNotice] = useState("正在读取已授权的摘要、趋势和安全事件状态。");
   const [today, setToday] = useState<FamilyToday>(mockFamilyToday);
+  const [elders, setElders] = useState<FamilyElder[]>([]);
+  const [selectedElderId, setSelectedElderId] = useState<string | null>(null);
   const [apiState, setApiState] = useState<"loading" | "connected" | "unavailable" | "denied" | "signed_out">("loading");
   const [actorName, setActorName] = useState("—");
   const [token, setToken] = useState<string | null>(null);
+  const [sessionChecked, setSessionChecked] = useState(false);
+  const [greeting, setGreeting] = useState("");
 
-  const greeting = useMemo(() => new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "long" }).format(new Date()), []);
+  useEffect(() => {
+    setGreeting(new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "long" }).format(new Date()));
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -50,7 +58,7 @@ export default function FamilyDashboard() {
     const stored = sessionStorage.getItem("hearttrace.family.session");
     if (!stored) {
       setApiState("signed_out");
-      setNotice("请先登录已获批的家属账号，再查看授权范围内的信息。");
+      router.replace("/account");
       return () => { active = false; };
     }
     let session: { accessToken: string; actor: { displayName: string; role: string } };
@@ -60,16 +68,16 @@ export default function FamilyDashboard() {
     } catch {
       sessionStorage.removeItem("hearttrace.family.session");
       setApiState("signed_out");
-      setNotice("登录状态无效，请重新登录。");
+      router.replace("/account");
       return () => { active = false; };
     }
 
+    setSessionChecked(true);
     setApiState("loading");
-    setAction("尚未记录行动");
-    setNotice("正在读取已授权的老人关系和今日摘要。");
+    setNotice("正在读取已授权的老人关系。");
     void getFamilyElders(session.accessToken)
-      .then(async (elders) => {
-        if (elders.items.length === 0) {
+      .then((result) => {
+        if (result.items.length === 0) {
           if (!active) return;
           setActorName(session.actor.displayName);
           setToken(session.accessToken);
@@ -77,13 +85,11 @@ export default function FamilyDashboard() {
           setNotice("该账号暂未获得任何老人的有效授权，服务端未返回老人数据。");
           return;
         }
-        const data = await getFamilyToday(session.accessToken, elders.items[0].id);
         if (!active) return;
         setActorName(session.actor.displayName);
         setToken(session.accessToken);
-        setToday(data);
-        setApiState("connected");
-        setNotice(`已读取授权摘要，当前老人：${data.elder.name}。`);
+        setElders(result.items);
+        setSelectedElderId(result.items[0].id);
       })
       .catch(() => {
         if (!active) return;
@@ -95,26 +101,56 @@ export default function FamilyDashboard() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [router]);
+
+  useEffect(() => {
+    if (!token || !selectedElderId) return;
+    let active = true;
+    setApiState("loading");
+    setAction("尚未记录行动");
+    setNotice("正在读取当前老人的授权摘要、关怀行动与安全状态。");
+    void getFamilyToday(token, selectedElderId)
+      .then((data) => {
+        if (!active) return;
+        setToday(data);
+        setApiState("connected");
+        setNotice(`已读取授权摘要，当前老人：${data.elder.name}。`);
+      })
+      .catch(() => {
+        if (!active) return;
+        setApiState("unavailable");
+        setNotice("暂时无法读取该老人的授权数据，未展示任何模拟或缓存信息。请稍后重试。");
+      });
+    return () => { active = false; };
+  }, [token, selectedElderId]);
 
   const logout = () => {
     sessionStorage.removeItem("hearttrace.family.session");
     setToken(null);
     setApiState("signed_out");
-    setNotice("你已退出登录。");
+    router.replace("/account");
   };
 
   const recordAction = async (nextAction: FamilyAction, label: string) => {
     try {
       if (!today.riskEventId) throw new Error("当前没有可关联的风险事件");
-      await recordFamilyAction(token, today.riskEventId, nextAction);
+      if (!today.access.careActionsAllowed) throw new Error("当前授权不包含关怀行动");
+      const recorded = await recordFamilyAction(token, today.riskEventId, nextAction);
       setAction(`已记录：${label}`);
+      setToday((current) => ({
+        ...current,
+        recentActions: [{ action: nextAction, recordedAt: recorded.recordedAt }, ...current.recentActions].slice(0, 5)
+      }));
       setNotice(`关怀行动“${label}”已提交。该记录会进入家属端的后续审计与跟进流程。`);
     } catch {
       setAction(`待同步：${label}`);
       setNotice("行动暂未同步到服务端，请在网络恢复后重试。演示数据没有被视为正式记录。");
     }
   };
+
+  if (!sessionChecked) {
+    return <main className="auth-loading" aria-live="polite"><div><span className="auth-loading-mark">心</span><p>正在验证登录状态…</p></div></main>;
+  }
 
   return (
     <main className="app-shell">
@@ -125,9 +161,9 @@ export default function FamilyDashboard() {
         </div>
 
         <div className="elder-switcher">
-          <div className="elder-avatar">{apiState === "denied" ? "—" : today.elder.name.slice(0, 1)}</div>
-          <div><strong>{apiState === "denied" ? "无授权老人" : today.elder.name}</strong><span>{apiState === "denied" ? "服务端未返回数据" : `${today.elder.age} 岁 · 已授权`}</span></div>
-          <button aria-label="切换老人" className="icon-button">⌄</button>
+          <div className="elder-avatar">{apiState === "denied" || elders.length === 0 ? "—" : (elders.find((elder) => elder.id === selectedElderId)?.name ?? today.elder.name).slice(0, 1)}</div>
+          <div><strong>{apiState === "denied" ? "无授权老人" : elders.find((elder) => elder.id === selectedElderId)?.name ?? today.elder.name}</strong><span>{apiState === "denied" ? "服务端未返回数据" : `${elders.find((elder) => elder.id === selectedElderId)?.age ?? today.elder.age} 岁 · 已授权`}</span></div>
+          {elders.length > 1 && <select aria-label="切换老人" className="elder-select" value={selectedElderId ?? ""} onChange={(event) => setSelectedElderId(event.target.value)}>{elders.map((elder) => <option key={elder.id} value={elder.id}>{elder.name}</option>)}</select>}
         </div>
 
         <nav aria-label="家属端导航">
@@ -146,10 +182,10 @@ export default function FamilyDashboard() {
 
       <div className="content-shell">
         <header className="topbar">
-          <div><p>{greeting}</p><h1>{pageTitles[page]}</h1></div>
+          <div><p suppressHydrationWarning>{greeting || "今日关怀"}</p><h1>{pageTitles[page]}</h1></div>
           <div className="top-actions">
             <Tag tone={apiState === "connected" ? "safe" : "alert"}>{apiState === "connected" ? "已授权查看" : "暂不可查看"}</Tag>
-            {apiState === "connected" ? <button className="profile" onClick={logout}>{actorName} · 退出</button> : <a className="profile" href="/account">登录家属账号</a>}
+            {apiState === "connected" ? <><a className="profile" href="/account/security">账户安全</a><button className="profile" onClick={logout}>{actorName} · 退出</button></> : <a className="profile" href="/account">登录家属账号</a>}
           </div>
         </header>
 
@@ -180,7 +216,7 @@ function TodayView({ today, action, onAction, onNavigate }: { today: FamilyToday
       <div className="eyebrow">今日状态 <Tag tone="warm">{today.status.label}</Tag></div>
       <h2>{today.status.headline}</h2>
       <p>{today.status.summary}</p>
-      <div className="hero-actions"><button className="primary" onClick={() => { void onAction("contacted", "已电话联系"); }}>我已联系</button><button className="secondary" onClick={() => { void onAction("video_planned", "计划晚间视频联络"); }}>安排视频联络</button></div>
+      <div className="hero-actions"><button className="primary" disabled={!today.access.careActionsAllowed || !today.riskEventId} onClick={() => { void onAction("contacted", "已电话联系"); }}>我已联系</button><button className="secondary" disabled={!today.access.careActionsAllowed || !today.riskEventId} onClick={() => { void onAction("video_planned", "计划晚间视频联络"); }}>安排视频联络</button></div>
       <small>{action}</small>
     </Card>
 
@@ -219,20 +255,29 @@ function TrendView({ today }: { today: FamilyToday }) {
   </div>;
 }
 
+function actionLabel(action: FamilyAction) {
+  return { contacted: "已联系", video_planned: "安排视频联络", referral_requested: "申请专业转介" }[action];
+}
+
+function formatDateTime(value: string) {
+  return new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(value));
+}
+
 function RiskView({ today, action, onAction }: { today: FamilyToday; action: string; onAction: (action: FamilyAction, label: string) => Promise<void> }) {
   const levelLabel = { green: "绿色 · 状态平稳", yellow: "黄色 · 待观察", orange: "橙色 · 需要关注", red: "红色 · 紧急" }[today.status.level];
   const urgency = { green: "低", yellow: "低", orange: "中", red: "高" }[today.status.level];
   return <div className="page-grid risk-grid">
     <Card className="risk-overview"><div><Tag tone={today.status.level === "red" ? "alert" : today.status.level === "green" ? "safe" : "warm"}>{levelLabel}</Tag><h2>{today.safety.message}</h2><p>系统提示以温和联系为主。若出现一键呼救、确认跌倒或明确生命安全危机，系统将升级为红色事件。</p></div><div className="risk-ring"><b>{urgency}</b><span>紧急程度</span></div></Card>
-    <Card className="action-card"><p className="muted">本次待办</p><h3>完成一项关怀行动</h3><button className="primary full" onClick={() => { void onAction("contacted", "已电话联系"); }}>记录已联系</button><button className="secondary full" onClick={() => { void onAction("referral_requested", "申请专业转介"); }}>申请专业转介</button><small>{action}</small></Card>
-    <Card className="event-card"><div className="card-heading"><div><p className="muted">安全事件</p><h3>一键呼救与设备事件</h3></div><Tag tone={today.safety.hasActiveEmergency ? "alert" : "safe"}>{today.safety.hasActiveEmergency ? "处理中" : "暂无事件"}</Tag></div><p>家属端只显示事件状态、处置时限和必要说明；不默认开放摄像头画面或日常视频。</p></Card>
+    <Card className="action-card"><p className="muted">本次待办</p><h3>完成一项关怀行动</h3><button className="primary full" disabled={!today.access.careActionsAllowed || !today.riskEventId} onClick={() => { void onAction("contacted", "已电话联系"); }}>记录已联系</button><button className="secondary full" disabled={!today.access.careActionsAllowed || !today.riskEventId} onClick={() => { void onAction("referral_requested", "申请专业转介"); }}>申请专业转介</button><small>{today.access.careActionsAllowed ? action : "当前授权仅允许查看摘要，不能提交关怀行动。"}</small></Card>
+    <Card className="event-card"><div className="card-heading"><div><p className="muted">安全事件</p><h3>一键呼救与设备事件</h3></div><Tag tone={today.safety.hasActiveEmergency ? "alert" : "safe"}>{today.safety.hasActiveEmergency ? "处理中" : "暂无事件"}</Tag></div><p>{today.safety.message}</p>{today.safety.hasActiveEmergency && <div className="event-meta"><span>{today.safety.source === "device_button" ? "设备实体求助键" : "老人端一键呼救"}</span>{today.safety.triggeredAt && <span>发起于 {formatDateTime(today.safety.triggeredAt)}</span>}</div>}<small>家属端只显示事件状态和必要说明；不默认开放摄像头画面或日常视频。</small></Card>
   </div>;
 }
 
 function PlanView({ today, onAction }: { today: FamilyToday; onAction: (action: FamilyAction, label: string) => Promise<void> }) {
-  return <div className="page-grid plan-grid"><Card className="plan-hero"><p className="muted">下一次陪伴</p><h2>今晚 19:30 · 视频问候</h2><p>由{today.elder.name}决定是否接通。系统只负责打开已绑定的联络路径，不保存微信通话内容。</p><button className="primary" onClick={() => { void onAction("video_planned", "已确认今晚视频问候"); }}>确认安排</button></Card><Card><p className="muted">本周清单</p><div className="task-list"><label><input type="checkbox" defaultChecked /> 发一条轻松的早安语音</label><label><input type="checkbox" /> 询问是否愿意视频聊天</label><label><input type="checkbox" /> 与家人协调周末探望</label></div></Card><Card><p className="muted">关怀话题</p><h3>避免“盘问式”关心</h3><div className="prompt-chips"><span>今天阳光好吗？</span><span>昨晚睡得还好吗？</span><span>最近有什么开心的事？</span></div></Card></div>;
+  return <div className="page-grid plan-grid"><Card className="plan-hero"><p className="muted">下一次陪伴</p><h2>今晚 19:30 · 视频问候</h2><p>由{today.elder.name}决定是否接通。系统只负责打开已绑定的联络路径，不保存微信通话内容。</p><button className="primary" disabled={!today.access.careActionsAllowed || !today.riskEventId} onClick={() => { void onAction("video_planned", "已确认今晚视频问候"); }}>确认安排</button></Card><Card><p className="muted">本周清单</p><div className="task-list"><label><input type="checkbox" defaultChecked /> 发一条轻松的早安语音</label><label><input type="checkbox" /> 询问是否愿意视频聊天</label><label><input type="checkbox" /> 与家人协调周末探望</label></div></Card><Card><p className="muted">最近关怀记录</p><h3>已同步到服务端</h3>{today.recentActions.length === 0 ? <p>尚未记录关怀行动。</p> : <div className="action-history">{today.recentActions.map((item, index) => <div key={`${item.action}-${item.recordedAt}-${index}`}><b>{actionLabel(item.action)}</b><span>{formatDateTime(item.recordedAt)}</span></div>)}</div>}</Card><Card><p className="muted">关怀话题</p><h3>避免“盘问式”关心</h3><div className="prompt-chips"><span>今天阳光好吗？</span><span>昨晚睡得还好吗？</span><span>最近有什么开心的事？</span></div></Card></div>;
 }
 
 function PrivacyView({ today }: { today: FamilyToday }) {
-  return <div className="page-grid privacy-grid"><Card className="privacy-head"><Tag tone="safe">授权状态有效</Tag><h2>{today.elder.name}始终可以查看、调整或撤回授权。</h2><p>家属可访问的范围以本人确认的授权为准。撤回后，服务端将立即停止对应接口返回。</p></Card><Card className="permission-card"><p className="muted">当前授权范围</p><div className="permission-row"><span>每日关怀摘要</span><Tag tone="safe">已授权</Tag></div><div className="permission-row"><span>关怀行动记录</span><Tag tone="safe">已授权</Tag></div><div className="permission-row"><span>完整聊天全文</span><Tag tone="calm">未授权</Tag></div><div className="permission-row"><span>设备事件短片段</span><Tag tone="calm">未授权</Tag></div></Card><Card className="audit-card"><p className="muted">访问记录</p><h3>透明且可追溯</h3><p>通过核心 API 的摘要查看与关怀行动均写入审计日志，可由管理端核对。</p></Card></div>;
+  const hasScope = (scope: string) => today.access.scopes.includes(scope);
+  return <div className="page-grid privacy-grid"><Card className="privacy-head"><Tag tone="safe">授权状态有效</Tag><h2>{today.elder.name}始终可以查看、调整或撤回授权。</h2><p>家属可访问的范围以本人确认的授权为准。撤回后，服务端将立即停止对应接口返回。</p></Card><Card className="permission-card"><p className="muted">当前授权范围</p><div className="permission-row"><span>每日关怀摘要</span><Tag tone={hasScope("daily_summary") ? "safe" : "calm"}>{hasScope("daily_summary") ? "已授权" : "未授权"}</Tag></div><div className="permission-row"><span>提交关怀行动</span><Tag tone={hasScope("care_actions") ? "safe" : "calm"}>{hasScope("care_actions") ? "已授权" : "未授权"}</Tag></div><div className="permission-row"><span>完整聊天全文</span><Tag tone="calm">未授权</Tag></div><div className="permission-row"><span>设备事件短片段</span><Tag tone="calm">未授权</Tag></div></Card><Card className="audit-card"><p className="muted">访问记录</p><h3>透明且可追溯</h3><p>通过核心 API 的摘要查看与关怀行动均写入审计日志，可由管理端核对。</p></Card></div>;
 }

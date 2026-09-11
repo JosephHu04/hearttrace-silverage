@@ -14,7 +14,9 @@ from app.db.models import (
 )
 from app.dependencies import DbSession, FamilyActor
 from app.schemas import (
+    FamilyAccessOut,
     FamilyActionRequest,
+    FamilyActionHistoryOut,
     FamilyActionResult,
     FamilyElderListOut,
     FamilyElderOut,
@@ -54,7 +56,7 @@ def my_elders(db: DbSession, actor: FamilyActor) -> FamilyElderListOut:
 
 @router.get("/elders/{elder_id}/today", response_model=FamilyTodayOut)
 def family_today(elder_id: str, db: DbSession, actor: FamilyActor) -> FamilyTodayOut:
-    active_grant(db, actor.id, elder_id, "daily_summary")
+    grant = active_grant(db, actor.id, elder_id, "daily_summary")
     elder = db.get(User, elder_id)
     profile = db.get(ElderProfile, elder_id)
     if elder is None or profile is None:
@@ -81,6 +83,20 @@ def family_today(elder_id: str, db: DbSession, actor: FamilyActor) -> FamilyToda
         .order_by(EmergencyEvent.created_at.desc())
         .limit(1)
     )
+    recent_actions = []
+    if "care_actions" in grant.scopes:
+        recent_actions = list(
+            db.scalars(
+                select(FamilyActionRecord)
+                .join(RiskEvent, RiskEvent.id == FamilyActionRecord.risk_event_id)
+                .where(
+                    FamilyActionRecord.family_id == actor.id,
+                    RiskEvent.elder_id == elder_id,
+                )
+                .order_by(FamilyActionRecord.created_at.desc())
+                .limit(5)
+            ).all()
+        )
     add_audit_log(
         db,
         actor_id=actor.id,
@@ -110,8 +126,16 @@ def family_today(elder_id: str, db: DbSession, actor: FamilyActor) -> FamilyToda
                 if active_emergency is not None
                 else insight.safety_message
             ),
+            status=active_emergency.status if active_emergency is not None else None,
+            source=active_emergency.source if active_emergency is not None else None,
+            triggered_at=active_emergency.created_at if active_emergency is not None else None,
         ),
         risk_event_id=risk_event.id if risk_event else None,
+        access=FamilyAccessOut(
+            scopes=grant.scopes,
+            care_actions_allowed="care_actions" in grant.scopes,
+        ),
+        recent_actions=[FamilyActionHistoryOut(action=item.action, recorded_at=item.created_at) for item in recent_actions],
     )
 
 

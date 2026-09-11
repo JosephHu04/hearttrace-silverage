@@ -21,7 +21,15 @@ export const mockFamilyToday: FamilyToday = {
   ],
   safety: {
     hasActiveEmergency: false,
-    message: "暂无紧急安全事件"
+    message: "暂无紧急安全事件",
+    status: null,
+    source: null,
+    triggeredAt: null
   },
-  riskEventId: "risk-demo-001"
+  riskEventId: "risk-demo-001",
+  access: {
+    scopes: ["daily_summary", "care_actions"],
+    careActionsAllowed: true
+  },
+  recentActions: []
 };
