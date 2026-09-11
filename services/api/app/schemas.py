@@ -133,6 +133,63 @@ class RiskActionResult(ApiModel):
     duplicate: bool = False
 
 
+class FamilyElderOut(ApiModel):
+    id: str
+    name: str
+    age: int
+    authorization_status: str = "active"
+
+
+class FamilyElderListOut(ApiModel):
+    items: list[FamilyElderOut]
+
+
+class FamilyStatusOut(ApiModel):
+    level: RiskLevel
+    label: str
+    headline: str
+    summary: str
+    score: int
+    baseline_delta: int
+
+
+class FamilyTopicOut(ApiModel):
+    name: str
+    note: str
+    tone: str
+
+
+class FamilySafetyOut(ApiModel):
+    has_active_emergency: bool
+    message: str
+
+
+class FamilyTodayOut(ApiModel):
+    elder: FamilyElderOut
+    status: FamilyStatusOut
+    topics: list[FamilyTopicOut]
+    safety: FamilySafetyOut
+    risk_event_id: Optional[str]
+
+
+class FamilyActionType(str, Enum):
+    contacted = "contacted"
+    video_planned = "video_planned"
+    referral_requested = "referral_requested"
+
+
+class FamilyActionRequest(ApiModel):
+    request_id: str = Field(min_length=8, max_length=100)
+    action: FamilyActionType
+
+
+class FamilyActionResult(ApiModel):
+    status: str = "recorded"
+    action: FamilyActionType
+    recorded_at: datetime
+    duplicate: bool = False
+
+
 class AuditLogOut(ApiModel):
     id: str
     actor_id: str

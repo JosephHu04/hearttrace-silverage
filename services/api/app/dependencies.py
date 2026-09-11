@@ -47,3 +47,12 @@ def require_risk_staff(actor: CurrentActor) -> User:
 
 
 RiskStaff = Annotated[User, Depends(require_risk_staff)]
+
+
+def require_family(actor: CurrentActor) -> User:
+    if actor.role != "family":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="当前角色不是家属账号")
+    return actor
+
+
+FamilyActor = Annotated[User, Depends(require_family)]

@@ -29,7 +29,7 @@ OpenAPI 地址为 `http://localhost:8000/docs`，健康检查为 `GET /api/healt
 {"actorId":"staff-admin-001"}
 ```
 
-返回的 Bearer token 可调用管理端接口。`family-demo-001` 用于验证非工作人员无法访问管理端。
+返回的 Bearer token 可调用对应角色接口。完整的合成测试账号、联调步骤和预期结果见 `docs/manual-integration-test.md`。
 
 ## 测试
 
@@ -37,4 +37,4 @@ OpenAPI 地址为 `http://localhost:8000/docs`，健康检查为 `GET /api/healt
 pytest
 ```
 
-测试覆盖角色越权、风险状态机、幂等写入、版本冲突和审计留痕。
+测试覆盖角色越权、家属授权隔离、风险状态机、幂等写入、版本冲突和审计留痕。
