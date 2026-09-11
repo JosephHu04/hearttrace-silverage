@@ -174,6 +174,28 @@ nav { display: grid; gap: 5px; }
 .empty.compact { padding: 20px 0 0; text-align: left; }
 .registration-panel { min-height: 430px; }.registration-intro { margin: 4px 0 22px; color: var(--muted); font-size: 13px; }.application-list { display: grid; gap: 10px; }.application-row { display:flex; align-items:center; justify-content:space-between; gap:20px; padding:18px; border:1px solid var(--line); border-radius:12px; background:#fcfcff; }.application-row strong { color:var(--ink); }.application-row p { margin:5px 0; color:var(--muted); font-size:13px; }.application-row small { color:#9491a4; font-size:12px; }.registration-actions { display:flex; gap:9px; flex:0 0 auto; }.registration-actions button { padding:9px 12px; }
 
+.registration-verification { align-items: end; }.registration-verification label { display:grid; gap:6px; color:var(--muted); font-size:.7rem; font-weight:800; }.registration-verification select { min-width:190px; padding:8px; border:1px solid #cbd4de; border-radius:7px; background:#fff; }.registration-verification > div { display:flex; gap:8px; }
+
+.relationship-panel { min-height: 480px; }
+.grant-list { display: grid; gap: 12px; padding: 0 20px 22px; }
+.grant-card { padding: 18px; border: 1px solid var(--line); border-radius: 10px; background: #fcfdfe; }
+.grant-card.revoked { background: #f6f7f8; opacity: .88; }
+.grant-head { display: flex; justify-content: space-between; gap: 20px; }
+.grant-head h3 { margin: 8px 0 5px; font-size: 1rem; }
+.grant-head p { margin: 0; color: var(--muted); font-size: .74rem; }
+.grant-head > small { color: #8791a0; font: .65rem/1.6 ui-monospace, monospace; text-align: right; }
+.grant-state { display: inline-flex; padding: 3px 7px; border-radius: 4px; font-size: .66rem; font-weight: 800; }
+.grant-state.active { color: var(--green); background: #e8f4ef; }
+.grant-state.revoked { color: var(--red); background: var(--red-soft); }
+.scope-options { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 15px 0; }
+.scope-options label { display: flex; align-items: center; gap: 7px; padding: 10px; border: 1px solid #dce3e9; border-radius: 7px; background: #fff; color: #46556a; font-size: .73rem; }
+.scope-options label.scope-disabled { color: #969fac; background: #f3f5f7; }
+.grant-actions { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; }
+.grant-actions input { min-height: 39px; padding: 8px 10px; border: 1px solid #cbd4de; border-radius: 7px; }
+.grant-actions button { width: auto; white-space: nowrap; }
+.danger-button { padding: 10px 12px; border: 1px solid #d49a9c; border-radius: 7px; color: var(--red); background: #fff7f7; font-size: .8rem; font-weight: 800; }
+.danger-button:disabled { cursor: wait; opacity: .6; }
+
 .audit-console { overflow: visible; }
 .audit-filters { display: grid; grid-template-columns: 1fr 1fr 1fr 1.2fr auto; gap: 12px; align-items: end; padding: 20px; border-bottom: 1px solid var(--line); background: #f8fafb; }
 .audit-filters label { display: grid; gap: 7px; color: #536174; font-size: .72rem; font-weight: 800; }
@@ -216,6 +238,7 @@ nav { display: grid; gap: 5px; }
   .review-layout { grid-template-columns: 270px minmax(520px, 1fr); }
   .metrics { grid-template-columns: repeat(2, 1fr); }
   .detail-columns { grid-template-columns: 1fr; }
+  .scope-options { grid-template-columns: 1fr 1fr; }
   .emergency-details { grid-template-columns: 1fr; }
   .audit-filters { grid-template-columns: 1fr 1fr; }
   .filter-actions { grid-column: 1 / -1; }
@@ -246,7 +269,8 @@ nav { display: grid; gap: 5px; }
   .emergency-details { padding: 18px; }
   .emergency-facts dl { grid-template-columns: 1fr; }
   .detail-meta { flex-wrap: wrap; }
-  .application-row { display:block; }.registration-actions { margin-top:14px; }
+  .application-row { display:block; }.registration-actions { margin-top:14px; }.registration-verification { align-items:stretch; }.registration-verification select { min-width:0; width:100%; }.registration-verification > div { display:grid; grid-template-columns:1fr 1fr; }
+  .grant-head { display: block; }.grant-head > small { display:block; margin-top:10px; text-align:left; }.grant-actions { grid-template-columns:1fr; }.scope-options { grid-template-columns:1fr; }
   .audit-filters { grid-template-columns: 1fr; }
   .filter-actions { grid-column: auto; }
 }
