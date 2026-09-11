@@ -1,4 +1,4 @@
-import type { ActionResult, FamilyAction, FamilyElderList, FamilyToday, LoginResult } from "./types";
+import type { ActionResult, AuthMessage, FamilyAction, FamilyElderList, FamilyToday, LoginResult, RegistrationApplication } from "./types";
 
 const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
@@ -38,5 +38,51 @@ export function recordFamilyAction(token: string | null, riskEventId: string, ac
   return request<ActionResult>(`/api/family/risk-events/${riskEventId}/actions`, token ?? undefined, {
     method: "POST",
     body: JSON.stringify({ requestId: crypto.randomUUID(), action })
+  });
+}
+
+export function createRegistrationApplication(body: {
+  displayName: string;
+  loginIdentifier: string;
+  relationship: string;
+  elderName: string;
+  password: string;
+  consentVersion: string;
+}) {
+  return request<RegistrationApplication>("/api/auth/registration-applications", undefined, {
+    method: "POST",
+    body: JSON.stringify(body)
+  });
+}
+
+export function getRegistrationApplication(applicationId: string) {
+  return request<RegistrationApplication>(`/api/auth/registration-applications/${applicationId}`);
+}
+
+export function loginWithPassword(loginIdentifier: string, password: string) {
+  return request<LoginResult>("/api/auth/login", undefined, {
+    method: "POST",
+    body: JSON.stringify({ loginIdentifier, password })
+  });
+}
+
+export function changePassword(token: string, currentPassword: string, newPassword: string) {
+  return request<AuthMessage>("/api/auth/password/change", token, {
+    method: "POST",
+    body: JSON.stringify({ currentPassword, newPassword })
+  });
+}
+
+export function requestPasswordRecovery(loginIdentifier: string) {
+  return request<AuthMessage>("/api/auth/password-recovery", undefined, {
+    method: "POST",
+    body: JSON.stringify({ loginIdentifier })
+  });
+}
+
+export function confirmPasswordRecovery(token: string, newPassword: string) {
+  return request<AuthMessage>("/api/auth/password-recovery/confirm", undefined, {
+    method: "POST",
+    body: JSON.stringify({ token, newPassword })
   });
 }

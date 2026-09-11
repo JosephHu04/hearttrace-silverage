@@ -70,6 +70,67 @@ class TokenOut(ApiModel):
     actor: ActorOut
 
 
+class LoginRequest(ApiModel):
+    login_identifier: str = Field(min_length=3, max_length=120)
+    password: str = Field(min_length=10, max_length=128)
+
+
+class RegistrationApplicationCreate(ApiModel):
+    display_name: str = Field(min_length=2, max_length=100)
+    login_identifier: str = Field(min_length=3, max_length=120)
+    relationship: str = Field(min_length=1, max_length=80)
+    elder_name: str = Field(min_length=1, max_length=100)
+    password: str = Field(min_length=10, max_length=128)
+    consent_version: str = Field(min_length=1, max_length=32)
+
+
+class RegistrationStatus(str, Enum):
+    pending = "pending"
+    approved = "approved"
+    rejected = "rejected"
+
+
+class RegistrationApplicationOut(ApiModel):
+    id: str
+    display_name: str
+    login_identifier: str
+    relationship: str
+    elder_name: str
+    consent_version: str
+    status: RegistrationStatus
+    review_note: Optional[str]
+    reviewed_at: Optional[datetime]
+    created_at: datetime
+
+
+class RegistrationApplicationListOut(ApiModel):
+    items: list[RegistrationApplicationOut]
+    total: int
+
+
+class RegistrationReviewRequest(ApiModel):
+    decision: RegistrationStatus
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+class PasswordChangeRequest(ApiModel):
+    current_password: str = Field(min_length=10, max_length=128)
+    new_password: str = Field(min_length=10, max_length=128)
+
+
+class PasswordRecoveryRequest(ApiModel):
+    login_identifier: str = Field(min_length=3, max_length=120)
+
+
+class PasswordRecoveryConfirm(ApiModel):
+    token: str = Field(min_length=32, max_length=256)
+    new_password: str = Field(min_length=10, max_length=128)
+
+
+class MessageOut(ApiModel):
+    message: str
+
+
 class RiskListItem(ApiModel):
     id: str
     elder_id: str

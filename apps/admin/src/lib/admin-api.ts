@@ -1,4 +1,4 @@
-import type { LoginResult, RiskAction, RiskActionResponse, RiskDetail, RiskListResponse } from "./types";
+import type { LoginResult, RegistrationApplication, RegistrationApplicationList, RiskAction, RiskActionResponse, RiskDetail, RiskListResponse } from "./types";
 
 const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
@@ -53,5 +53,19 @@ export function performRiskAction(
       expectedVersion,
       note: note?.trim() || null
     })
+  });
+}
+
+export function getRegistrationApplications(token: string) {
+  return request<RegistrationApplicationList>("/api/admin/registration-applications?status=pending", {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
+export function reviewRegistrationApplication(token: string, applicationId: string, decision: "approved" | "rejected", note?: string) {
+  return request<RegistrationApplication>(`/api/admin/registration-applications/${applicationId}/review`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ decision, note: note?.trim() || null })
   });
 }

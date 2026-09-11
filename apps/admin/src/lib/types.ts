@@ -87,3 +87,20 @@ export type RiskActionResponse = {
   action: RiskActionRecord;
   duplicate: boolean;
 };
+
+export type RegistrationStatus = "pending" | "approved" | "rejected";
+
+export type RegistrationApplication = {
+  id: string;
+  displayName: string;
+  loginIdentifier: string;
+  relationship: string;
+  elderName: string;
+  consentVersion: string;
+  status: RegistrationStatus;
+  reviewNote: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+};
+
+export type RegistrationApplicationList = { items: RegistrationApplication[]; total: number };
