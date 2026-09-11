@@ -90,3 +90,19 @@ npm run build
 cd services/api
 pytest tests/test_analysis_pipeline.py
 ```
+
+## 站内通知联调
+
+1. 陈奶奶发起紧急求助后，林女士与工作人员调用 `GET /api/notifications/me` 应各看到一条未读紧急通知；无授权家属不能收到。
+2. 工作人员确认或解除紧急事件后，林女士应收到对应状态更新；重复业务请求不得重复生成通知。
+3. 管理员对风险事件执行“要求跟进”后，具有 `care_actions` 授权的家属应收到跟进通知。
+4. 注册申请通过后，新家属首次登录即可读取审核通过通知；授权范围更新、撤销或重新启用后，应收到授权状态通知。
+5. 接收人调用 `POST /api/notifications/{id}/read` 后未读数减一；其他账号操作该通知必须返回 404。
+6. 运行 `python3 services/worker/notification_worker.py --once` 后，审计台应出现 `notification.delivered`，Outbox payload 不应出现正文、联系方式或对话内容。
+
+自动验证：
+
+```bash
+cd services/api
+pytest tests/test_notifications.py
+```

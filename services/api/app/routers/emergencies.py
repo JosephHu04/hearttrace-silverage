@@ -26,6 +26,7 @@ from app.services.emergencies import (
     elder_name,
     list_emergencies,
 )
+from app.services.notifications import notify_families, notify_staff
 
 
 router = APIRouter(tags=["emergency-events"])
@@ -99,6 +100,26 @@ def create_emergency_event(
         target_type="emergency_event",
         target_id=event.id,
         metadata={"elderId": elder_id, "source": event.source},
+    )
+    notify_staff(
+        db,
+        category="emergency",
+        title="新的紧急求助",
+        body=f"{elder.display_name}发出紧急求助，请尽快确认。",
+        target_type="emergency_event",
+        target_id=event.id,
+        event_key="created",
+    )
+    notify_families(
+        db,
+        elder_id=elder.id,
+        required_scope="daily_summary",
+        category="emergency",
+        title="老人发出紧急求助",
+        body=f"{elder.display_name}已发出紧急求助，工作人员将尽快确认。",
+        target_type="emergency_event",
+        target_id=event.id,
+        event_key="created",
     )
     db.commit()
     db.refresh(event)

@@ -35,7 +35,10 @@ const auditActionLabels: Record<string, string> = {
   "analysis.completed": "完成结构化关怀分析",
   "analysis.skipped": "因授权变化跳过分析",
   "analysis.failed": "关怀分析任务失败",
-  "analysis.summary_published": "发布已复核家属摘要"
+  "analysis.summary_published": "发布已复核家属摘要",
+  "notification.read": "读取站内通知",
+  "notification.delivered": "确认通知投递",
+  "notification.delivery_failed": "通知投递失败"
 };
 
 const emergencyStatusLabels: Record<EmergencyStatus, string> = {
@@ -542,6 +545,9 @@ export default function AdminDashboard() {
                   <option value="analysis.skipped">因授权变化跳过分析</option>
                   <option value="analysis.failed">关怀分析任务失败</option>
                   <option value="analysis.summary_published">发布已复核家属摘要</option>
+                  <option value="notification.read">读取站内通知</option>
+                  <option value="notification.delivered">确认通知投递</option>
+                  <option value="notification.delivery_failed">通知投递失败</option>
                 </select>
               </label>
               <label>操作者 ID
@@ -558,6 +564,7 @@ export default function AdminDashboard() {
                   <option value="conversation_analysis">结构化关怀分析</option>
                   <option value="daily_insight">家属每日摘要</option>
                   <option value="outbox_event">异步任务事件</option>
+                  <option value="notification">站内通知</option>
                 </select>
               </label>
               <label>对象 ID

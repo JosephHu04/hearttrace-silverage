@@ -15,6 +15,15 @@ python3 services/worker/analysis_worker.py
 
 失败任务最多尝试三次并指数退避；耗尽重试后写入 `analysis.failed` 审计记录。生产部署可继续以同一 Outbox 契约替换为 Redis 队列唤醒，数据库仍是业务事实来源。
 
+## 运行通知 Worker
+
+```bash
+python3 services/worker/notification_worker.py --once
+python3 services/worker/notification_worker.py
+```
+
+站内通知在业务事务中已经可读，通知 Worker 负责确认对应 Outbox 投递并写入 `notification.delivered` 审计。当前仅启用 `in_app` 适配器，不打印通知正文或接收人的联系方式；接入短信/邮件时应实现同一适配器接口，并保留三次重试、幂等键和失败留痕。
+
 ## 本机配置
 
 在仓库根目录新建未提交的 `.env.local`，或在本机终端设置下列变量。程序会读取 `.env.local` 中尚未设置的变量；切勿把真实值写进代码、GitHub 或聊天消息：
