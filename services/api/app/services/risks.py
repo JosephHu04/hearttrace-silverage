@@ -10,6 +10,7 @@ from app.db.models import RiskAction, RiskEvent, RiskEvidence, User, utc_now
 from app.schemas import RiskActionRequest
 from app.services.analysis_pipeline import publish_confirmed_analysis_summary
 from app.services.audit import add_audit_log
+from app.services.notifications import notify_families
 
 
 class RiskNotFoundError(Exception):
@@ -161,7 +162,20 @@ def apply_action(
         metadata={"fromStatus": previous_status, "toStatus": next_status, "eventVersion": next_version},
     )
     if action_name == "request_action":
-        publish_confirmed_analysis_summary(db, risk_event=event, actor_id=actor.id)
+        published = publish_confirmed_analysis_summary(db, risk_event=event, actor_id=actor.id)
+        if published is None:
+            name = db.scalar(select(User.display_name).where(User.id == event.elder_id)) or "老人"
+            notify_families(
+                db,
+                elder_id=event.elder_id,
+                required_scope="care_actions",
+                category="risk_follow_up",
+                title="新的关怀跟进事项",
+                body=f"工作人员建议尽快联系{name}并记录跟进情况。",
+                target_type="risk_event",
+                target_id=event.id,
+                event_key=f"request_action:v{next_version}",
+            )
     try:
         db.commit()
     except Exception:

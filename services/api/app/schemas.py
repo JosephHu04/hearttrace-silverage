@@ -181,6 +181,39 @@ class MessageOut(ApiModel):
     message: str
 
 
+class NotificationCategory(str, Enum):
+    emergency = "emergency"
+    risk_follow_up = "risk_follow_up"
+    registration = "registration"
+    authorization = "authorization"
+    analysis_summary = "analysis_summary"
+
+
+class NotificationOut(ApiModel):
+    id: str
+    category: NotificationCategory
+    title: str
+    body: str
+    target_type: str
+    target_id: str
+    is_read: bool
+    read_at: Optional[datetime]
+    created_at: datetime
+
+
+class NotificationListOut(ApiModel):
+    items: list[NotificationOut]
+    unread_count: int
+    page: int
+    per_page: int
+    total: int
+
+
+class NotificationReadResult(ApiModel):
+    notification: NotificationOut
+    duplicate: bool = False
+
+
 class ConversationSessionCreate(ApiModel):
     save_messages: bool = False
     allow_analysis: bool = False
