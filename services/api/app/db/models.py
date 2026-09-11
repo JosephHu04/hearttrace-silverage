@@ -44,6 +44,7 @@ class RegistrationApplication(Base):
     login_identifier: Mapped[str] = mapped_column(String(120))
     relationship: Mapped[str] = mapped_column(String(80))
     elder_name: Mapped[str] = mapped_column(String(100))
+    elder_id: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id"), nullable=True)
     password_hash: Mapped[str] = mapped_column(String(256))
     consent_version: Mapped[str] = mapped_column(String(32))
     status: Mapped[str] = mapped_column(String(24), default="pending", index=True)
@@ -79,7 +80,15 @@ class FamilyElderGrant(Base):
     elder_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
     scopes: Mapped[list[str]] = mapped_column(JSON, default=list)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    relationship: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    consent_version: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    created_by: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    updated_by: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    revoked_by: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
 
 class DeviceElderBinding(Base):

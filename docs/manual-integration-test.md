@@ -55,6 +55,15 @@ npm run dev
 5. 管理员在审计台按对象类型 `emergency_event` 和对象 ID 查询，应看到 `emergency.created`、`emergency.acknowledge`、`emergency.resolve`。
 6. 使用 `device-demo-001` 可为陈奶奶创建 `device_button` 求助，但为 `elder-demo-002` 创建必须返回 403。
 
+## 家属注册与授权联调
+
+1. 在家属注册页提交合成申请；审核前使用申请密码登录应返回 401。
+2. 管理端“注册审核”必须先从系统老人账号中选择核验对象，未选择时不能通过。
+3. 选择 `elder-demo-001` 并通过后，新家属应能登录且只能看到陈奶奶，不能访问李爷爷。
+4. 在“关系与授权”取消“关怀行动记录”并保存；新家属仍可查看摘要，但提交关怀行动应返回 403。
+5. 填写原因并撤销授权；无需重新登录，家属老人列表应立即为空，摘要访问返回 403。
+6. 填写重新核验说明并启用授权；访问恢复，审计台应显示 `grant.created`、`grant.update_scopes`、`grant.revoke` 和 `grant.reactivate`。
+
 ## 自动验证
 
 ```bash

@@ -108,8 +108,58 @@ class RegistrationApplicationListOut(ApiModel):
     total: int
 
 
+class AuthorizationScope(str, Enum):
+    daily_summary = "daily_summary"
+    care_actions = "care_actions"
+
+
 class RegistrationReviewRequest(ApiModel):
     decision: RegistrationStatus
+    elder_id: Optional[str] = Field(default=None, max_length=64)
+    scopes: list[AuthorizationScope] = Field(default_factory=lambda: [AuthorizationScope.daily_summary, AuthorizationScope.care_actions])
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+class GrantActionType(str, Enum):
+    update_scopes = "update_scopes"
+    revoke = "revoke"
+    reactivate = "reactivate"
+
+
+class ElderAccountOut(ApiModel):
+    id: str
+    display_name: str
+    age: int
+
+
+class ElderAccountListOut(ApiModel):
+    items: list[ElderAccountOut]
+
+
+class FamilyGrantOut(ApiModel):
+    family_id: str
+    family_name: str
+    elder_id: str
+    elder_name: str
+    relationship: Optional[str]
+    consent_version: Optional[str]
+    scopes: list[AuthorizationScope]
+    is_active: bool
+    version: int
+    created_at: datetime
+    updated_at: datetime
+    revoked_at: Optional[datetime]
+
+
+class FamilyGrantListOut(ApiModel):
+    items: list[FamilyGrantOut]
+    total: int
+
+
+class GrantActionRequest(ApiModel):
+    action: GrantActionType
+    expected_version: int = Field(ge=1)
+    scopes: Optional[list[AuthorizationScope]] = None
     note: Optional[str] = Field(default=None, max_length=500)
 
 

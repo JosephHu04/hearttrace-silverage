@@ -6,7 +6,7 @@ def application_payload() -> dict[str, str]:
         "displayName": "赵女士",
         "loginIdentifier": "zhao@example.com",
         "relationship": "子女",
-        "elderName": "赵爷爷",
+        "elderName": "陈奶奶",
         "password": "safe-password-2026",
         "consentVersion": "family-registration-v1",
     }
@@ -31,7 +31,7 @@ def test_registration_requires_admin_approval_before_login(client: TestClient, a
     approved = client.post(
         f"/api/admin/registration-applications/{application['id']}/review",
         headers=admin_headers,
-        json={"decision": "approved", "note": "关系核验通过"},
+        json={"decision": "approved", "elderId": "elder-demo-001", "note": "关系核验通过"},
     )
     assert approved.status_code == 200
     assert approved.json()["status"] == "approved"
@@ -46,7 +46,7 @@ def test_approved_family_can_change_password_and_recovery_request_is_non_enumera
     client.post(
         f"/api/admin/registration-applications/{application['id']}/review",
         headers=admin_headers,
-        json={"decision": "approved"},
+        json={"decision": "approved", "elderId": "elder-demo-001"},
     )
     login = client.post("/api/auth/login", json={"loginIdentifier": "zhao@example.com", "password": "safe-password-2026"}).json()
     changed = client.post(

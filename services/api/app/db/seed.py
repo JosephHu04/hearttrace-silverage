@@ -43,8 +43,8 @@ def seed_demo_data(db: Session) -> None:
         [
             ElderProfile(user_id="elder-demo-001", age=82),
             ElderProfile(user_id="elder-demo-002", age=76),
-            FamilyElderGrant(family_id="family-demo-001", elder_id="elder-demo-001", scopes=["daily_summary", "care_actions"]),
-            FamilyElderGrant(family_id="family-demo-002", elder_id="elder-demo-002", scopes=["daily_summary", "care_actions"]),
+            FamilyElderGrant(family_id="family-demo-001", elder_id="elder-demo-001", scopes=["daily_summary", "care_actions"], relationship="女儿", consent_version="demo-consent-v1", created_by="staff-admin-001", updated_by="staff-admin-001", updated_at=now),
+            FamilyElderGrant(family_id="family-demo-002", elder_id="elder-demo-002", scopes=["daily_summary", "care_actions"], relationship="儿子", consent_version="demo-consent-v1", created_by="staff-admin-001", updated_by="staff-admin-001", updated_at=now),
             DeviceElderBinding(device_id="device-demo-001", elder_id="elder-demo-001"),
         ],
     )
