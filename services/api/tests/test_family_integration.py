@@ -22,6 +22,8 @@ def test_family_today_is_structured_and_excludes_private_content(
     assert body["elder"]["name"] == "陈奶奶"
     assert body["riskEventId"] == "risk-demo-001"
     assert body["status"]["level"] == "yellow"
+    assert body["access"] == {"scopes": ["daily_summary", "care_actions"], "careActionsAllowed": True}
+    assert body["recentActions"] == []
     assert "messageContent" not in body
     assert "transcript" not in body
 
@@ -59,6 +61,10 @@ def test_family_action_is_authorized_idempotent_and_audited(
         headers=admin_headers,
     )
     assert any(item["action"] == "family.contacted" for item in audit.json()["items"])
+
+    today = client.get("/api/family/elders/elder-demo-001/today", headers=family_headers)
+    assert today.status_code == 200
+    assert today.json()["recentActions"][0]["action"] == "contacted"
 
 
 def test_family_cannot_act_on_another_elders_event(

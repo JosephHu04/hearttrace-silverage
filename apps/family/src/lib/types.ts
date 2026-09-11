@@ -24,8 +24,19 @@ export type FamilyToday = {
   safety: {
     hasActiveEmergency: boolean;
     message: string;
+    status: "open" | "acknowledged" | "resolved" | "cancelled" | null;
+    source: "elder_button" | "device_button" | null;
+    triggeredAt: string | null;
   };
   riskEventId: string | null;
+  access: {
+    scopes: string[];
+    careActionsAllowed: boolean;
+  };
+  recentActions: Array<{
+    action: FamilyAction;
+    recordedAt: string;
+  }>;
 };
 
 export type FamilyAction = "contacted" | "video_planned" | "referral_requested";
