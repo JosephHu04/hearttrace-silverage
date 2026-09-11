@@ -29,10 +29,12 @@ def test_elder_creates_idempotent_emergency_and_family_sees_it(
 
     today = client.get("/api/family/elders/elder-demo-001/today", headers=family_headers)
     assert today.status_code == 200
-    assert today.json()["safety"] == {
-        "hasActiveEmergency": True,
-        "message": "老人已发出紧急求助，请尽快确认其安全",
-    }
+    safety = today.json()["safety"]
+    assert safety["hasActiveEmergency"] is True
+    assert safety["message"] == "老人已发出紧急求助，请尽快确认其安全"
+    assert safety["status"] == "open"
+    assert safety["source"] == "elder_button"
+    assert isinstance(safety["triggeredAt"], str)
 
 
 def test_elder_cannot_create_event_for_another_elder(client: TestClient, elder_headers: dict[str, str]):
