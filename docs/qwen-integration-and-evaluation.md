@@ -2,16 +2,16 @@
 
 ## 选择结论
 
-MVP 的文本陪伴与异步关怀分析统一选择 **`qwen-plus`**。
+MVP 将低延迟实时陪伴与异步关怀分析分开配置：
 
-- 中文多轮沟通与结构化 JSON 摘要较稳定，模型别名便于比赛期间复现；
-- 在短上下文的非思考模式下，官方列示价格约为输入 ¥0.8 / 百万 Token、输出 ¥2 / 百万 Token；
-- 不用最高档模型作为默认，避免每日摘要和多人并发时成本不可控；
-- 后续可通过 `DASHSCOPE_MODEL` 对 flash 系列进行非危机场景 A/B 测试，但危机规则和正式量表不依赖模型。
+- 实时陪伴默认 **`qwen3.8-flash`**，关闭思考模式、限制历史和输出长度，并使用流式返回；
+- 异步关怀分析继续使用 **`qwen-plus`**，保持结构化 JSON 验证和合成案例评测；
+- 急症、跌倒、自伤语言等危机场景使用服务端确定性规则，不依赖任一模型；
+- 两种用途共享百炼 API Key，但使用不同模型环境变量，避免实时成本选择影响分析任务。
 
 阿里云百炼的新按量付费 API Key 可以 `sk-ws-` 开头；它是 API Key，不是 SSH 私钥。密钥只能保存在本机环境变量或密钥管理服务中，不能提交到 Git 仓库。
 
-开发时可在仓库根目录创建被 `.gitignore` 排除的 `.env.local`，填入 `DASHSCOPE_API_KEY`、`DASHSCOPE_BASE_URL` 和 `DASHSCOPE_MODEL`；评测脚本会读取该文件，但不会打印或保存其中的密钥。
+开发时可在被 `.gitignore` 排除的本地环境文件中配置 `DASHSCOPE_API_KEY` 与 `DASHSCOPE_BASE_URL`。`DASHSCOPE_MODEL` 控制异步分析，`DASHSCOPE_COMPANION_MODEL` 控制实时陪伴；任何脚本和日志都不能打印或保存密钥。
 
 ## 接入方式
 
@@ -20,7 +20,7 @@ MVP 的文本陪伴与异步关怀分析统一选择 **`qwen-plus`**。
 ```text
 POST {DASHSCOPE_BASE_URL}/chat/completions
 Authorization: Bearer ${DASHSCOPE_API_KEY}
-model: qwen-plus
+model: qwen-plus（异步分析）或 qwen3.8-flash（实时陪伴）
 ```
 
 开发默认使用北京地域 `https://dashscope.aliyuncs.com/compatible-mode/v1`。生产环境应使用业务空间专属 API Host，且 API Key、业务空间和地域必须匹配。

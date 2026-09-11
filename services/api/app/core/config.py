@@ -17,7 +17,17 @@ class Settings(BaseSettings):
         "http://127.0.0.1:3000",
         "http://localhost:3001",
         "http://127.0.0.1:3001",
+        "http://localhost:3002",
+        "http://127.0.0.1:3002",
     ]
+    dashscope_api_key: str = ""
+    dashscope_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    dashscope_companion_model: str = "qwen3.8-flash"
+    dashscope_companion_timeout_seconds: float = 8.0
+    companion_history_limit: int = 16
+    elder_default_location: str = "澳门"
+    elder_default_latitude: float = 22.1987
+    elder_default_longitude: float = 113.5439
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

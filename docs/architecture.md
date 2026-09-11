@@ -26,3 +26,20 @@
 - 异步：Redis 加 Arq、RQ 或 Celery。
 - 数据：PostgreSQL、pgvector 与受控对象存储。
 - 硬件后续路线：Android 触控一体机或平板、实体求助键、端侧跌倒候选检测。
+
+## 老人端陪伴纵向切片
+
+```text
+apps/elder（Next.js，默认 3002）
+  ├─ POST /api/conversations/sessions：声明保存与分析授权
+  ├─ WS /api/realtime/conversation：首帧鉴权、流式对话
+  └─ GET /api/elder/widgets/*：天气与资讯卡片
+                         ↓
+services/api
+  ├─ 老人角色与会话所有权校验
+  ├─ 危机、跌倒和急症确定性安全路由
+  ├─ 时间/天气/资讯低延迟路由
+  └─ qwen3.8-flash 非思考流式陪伴
+```
+
+实时连接只在内存中保留当前会话上下文。只有老人创建会话时明确设置 `saveMessages=true`，服务端才保存聊天消息；`allowAnalysis` 是独立授权，不能由保存授权推导。家属端和管理端不提供聊天原文读取接口。

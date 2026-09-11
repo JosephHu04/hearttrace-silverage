@@ -24,7 +24,46 @@
 | `POST /api/auth/password-recovery` | 家属端 | 请求向已绑定渠道发送一次性重置说明；响应不泄露账号是否存在 |
 | `POST /api/auth/password-recovery/confirm` | 家属端 | 消费 15 分钟的一次性令牌并重置密码 |
 
-接口请求、响应字段、授权 scope 和错误码将在第 2 周冻结为 OpenAPI 文档。
+## 已实现：老人端陪伴会话
+
+`POST /api/conversations/sessions` 仅允许 `elder` 角色调用。请求体：
+
+```json
+{
+  "saveMessages": false,
+  "allowAnalysis": false
+}
+```
+
+两个授权字段互相独立，默认均为 `false`。服务端始终保存会话 ID、所属老人、授权选择和审计记录；仅在 `saveMessages=true` 时保存聊天内容。老人只能读取自己的已保存会话，家属与工作人员没有聊天原文接口。
+
+`WS /api/realtime/conversation` 不在 URL 中传递访问令牌。连接后的第一帧必须是：
+
+```json
+{
+  "type": "authenticate",
+  "accessToken": "Bearer 令牌本体",
+  "sessionId": "会话 ID"
+}
+```
+
+认证成功后，客户端发送 `{"type":"message","text":"..."}`。服务端事件包括：
+
+| `type` | 用途 |
+| --- | --- |
+| `ready` | 会话和老人身份校验完成 |
+| `progress` | 正在读取时间、天气或资讯 |
+| `meta` | 本轮场景、处理路径和模型 |
+| `widget` | 与本轮回复共用的组件数据 |
+| `delta` | 可直接朗读的流式文本片段 |
+| `done` | 完整回复与首字、总耗时 |
+| `error` | 可向用户说明的连接错误 |
+
+时间、天气和新闻使用服务端快速路由，不增加第二次模型调用。非紧急普通对话由 `DASHSCOPE_COMPANION_MODEL` 处理；急症、跌倒、自伤语言等安全场景不交给生成模型决定。
+
+`GET /api/elder/widgets/weather` 和 `GET /api/elder/widgets/news` 仅允许老人角色读取。定位参数只用于当次天气请求，本纵向切片不保存精确位置。
+
+其他接口请求、响应字段、授权 scope 和错误码将在后续继续冻结为 OpenAPI 文档。
 
 ## 家属注册状态机
 
