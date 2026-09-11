@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import get_settings
 from app.db.seed import seed_demo_data
 from app.db.session import SessionLocal, create_schema
-from app.routers import admin_risks, auth, family
+from app.routers import admin_accounts, admin_risks, auth, family
 from app.schemas import HealthOut
 
 
@@ -37,6 +37,7 @@ def create_app() -> FastAPI:
         allow_headers=["Authorization", "Content-Type"],
     )
     application.include_router(auth.router, prefix=settings.api_prefix)
+    application.include_router(admin_accounts.router, prefix=settings.api_prefix)
     application.include_router(admin_risks.router, prefix=settings.api_prefix)
     application.include_router(family.router, prefix=settings.api_prefix)
 

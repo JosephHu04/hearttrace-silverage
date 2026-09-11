@@ -12,8 +12,25 @@
 | `GET /api/family/elders/{id}/today` | 家属端 | 今日摘要、趋势、待办和紧急事件状态 |
 | `POST /api/family/risk-events/{id}/actions` | 家属端 | 记录已查看、已联系、已探望或已转介 |
 | `GET /api/admin/fall-events` | 管理端 | 审核跌倒候选事件与设备在线状态 |
+| `POST /api/auth/registration-applications` | 家属端 | 提交家属关系核验申请；密码仅以哈希保存 |
+| `GET /api/auth/registration-applications/{id}` | 家属端 | 查询本人申请的审批状态（正式版应加入短信/邮件校验） |
+| `GET /api/admin/registration-applications?status=pending` | 管理端 | 查看待审批家属申请 |
+| `POST /api/admin/registration-applications/{id}/review` | 管理端 | 通过或驳回申请；通过时在同一事务中创建家属账号与审计记录 |
+| `POST /api/auth/login` | 家属端、管理端 | 密码登录并获得短期访问令牌 |
+| `POST /api/auth/password/change` | 已登录用户 | 校验当前密码后修改密码 |
+| `POST /api/auth/password-recovery` | 家属端 | 请求向已绑定渠道发送一次性重置说明；响应不泄露账号是否存在 |
+| `POST /api/auth/password-recovery/confirm` | 家属端 | 消费 15 分钟的一次性令牌并重置密码 |
 
 接口请求、响应字段、授权 scope 和错误码将在第 2 周冻结为 OpenAPI 文档。
+
+## 家属注册状态机
+
+```text
+提交申请 → pending（无法登录） → 管理员通过 → approved + 创建家属账号 → 可以登录
+                              └→ 管理员驳回 → rejected（保留审核原因）
+```
+
+管理端只可查看申请人、联系方式、关系和授权声明版本，不能读取明文密码或密码哈希。找回密码令牌必须由邮件或短信适配器发送；当前仓库已完成生成、哈希存储、过期与一次性消费机制，但不把令牌暴露给浏览器。
 
 ## 已实现：风险复核纵向切片
 

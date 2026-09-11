@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { demoLogin, getAuditLogs, getRiskDetail, getRiskQueue, performRiskAction } from "@/lib/admin-api";
-import type { Actor, AuditFilters, AuditListResponse, RiskAction, RiskDetail, RiskListItem, RiskStatus } from "@/lib/types";
+import { demoLogin, getAuditLogs, getRegistrationApplications, getRiskDetail, getRiskQueue, performRiskAction, reviewRegistrationApplication } from "@/lib/admin-api";
+import type { Actor, AuditFilters, AuditListResponse, RegistrationApplication, RiskAction, RiskDetail, RiskListItem, RiskStatus } from "@/lib/types";
 
-type AdminView = "risk" | "audit";
+type AdminView = "risk" | "audit" | "registrations";
 
 const emptyAuditFilters: AuditFilters = { actorId: "", action: "", targetType: "", targetId: "", page: 1, perPage: 25 };
 
@@ -85,6 +85,8 @@ export default function AdminDashboard() {
   const [auditFilters, setAuditFilters] = useState<AuditFilters>(emptyAuditFilters);
   const [appliedAuditFilters, setAppliedAuditFilters] = useState<AuditFilters>(emptyAuditFilters);
   const [auditLoading, setAuditLoading] = useState(false);
+  const [applications, setApplications] = useState<RegistrationApplication[]>([]);
+  const [reviewingId, setReviewingId] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -97,6 +99,9 @@ export default function AdminDashboard() {
         const queue = await getRiskQueue(login.accessToken);
         if (!active) return;
         setRisks(queue.items);
+        const registrationQueue = await getRegistrationApplications(login.accessToken);
+        if (!active) return;
+        setApplications(registrationQueue.items);
         if (queue.items[0]) {
           const detail = await getRiskDetail(login.accessToken, queue.items[0].id);
           if (!active) return;
@@ -180,9 +185,27 @@ export default function AdminDashboard() {
     setActiveView(view);
     setError("");
     if (view === "audit" && audits.items.length === 0) void loadAudits(emptyAuditFilters);
+    if (view === "registrations") {
+      void getRegistrationApplications(token).then((queue) => setApplications(queue.items)).catch(() => setError("读取注册申请失败"));
+    }
   };
 
   const auditPageCount = Math.max(1, Math.ceil(audits.total / audits.perPage));
+
+  const reviewApplication = async (application: RegistrationApplication, decision: "approved" | "rejected") => {
+    if (!token) return;
+    setReviewingId(application.id);
+    setError("");
+    try {
+      await reviewRegistrationApplication(token, application.id, decision);
+      setApplications((current) => current.filter((item) => item.id !== application.id));
+      setNotice(decision === "approved" ? "申请已通过，家属账户已激活。" : "申请已驳回，结果已写入审计记录。");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "审核提交失败");
+    } finally {
+      setReviewingId(null);
+    }
+  };
 
   return (
     <main className="app-shell">
@@ -190,10 +213,11 @@ export default function AdminDashboard() {
         <div className="brand"><span>心</span><div><strong>心迹银龄</strong><small>管理工作台</small></div></div>
         <nav aria-label="管理端主导航">
           <button className={`nav-item ${activeView === "risk" ? "active" : ""}`} onClick={() => openView("risk")}><span>01</span>风险复核</button>
-          <button className="nav-item" disabled><span>02</span>安全事件<em>待接入</em></button>
-          <button className="nav-item" disabled><span>03</span>关系与授权<em>待接入</em></button>
-          <button className="nav-item" disabled><span>04</span>设备管理<em>待接入</em></button>
-          <button className={`nav-item ${activeView === "audit" ? "active" : ""}`} onClick={() => openView("audit")}><span>05</span>审计查询</button>
+          <button className={`nav-item ${activeView === "registrations" ? "active" : ""}`} onClick={() => openView("registrations")}><span>02</span>注册审核{applications.length > 0 && <em>{applications.length} 待办</em>}</button>
+          <button className="nav-item" disabled><span>03</span>安全事件<em>待接入</em></button>
+          <button className="nav-item" disabled><span>04</span>关系与授权<em>待接入</em></button>
+          <button className="nav-item" disabled><span>05</span>设备管理<em>待接入</em></button>
+          <button className={`nav-item ${activeView === "audit" ? "active" : ""}`} onClick={() => openView("audit")}><span>06</span>审计查询</button>
         </nav>
         <div className="sidebar-note">
           <span className="connection-dot" />
@@ -204,7 +228,7 @@ export default function AdminDashboard() {
 
       <section className="workspace">
         <header className="topbar">
-          <div><p>{activeView === "risk" ? "风险复核 / 今日工作" : "审计查询 / 操作留痕"}</p><h1>{activeView === "risk" ? "先处理需要人工判断的事项" : "核对每一次敏感读取与人工操作"}</h1></div>
+          <div><p>{activeView === "risk" ? "风险复核 / 今日工作" : activeView === "audit" ? "审计查询 / 操作留痕" : "账号管理 / 关系核验"}</p><h1>{activeView === "risk" ? "先处理需要人工判断的事项" : activeView === "audit" ? "核对每一次敏感读取与人工操作" : "审核家属账户申请"}</h1></div>
           <div className="actor"><span>{actor?.displayName?.slice(0, 1) ?? "管"}</span><div><strong>{actor?.displayName ?? "正在登录"}</strong><small>{actor?.role ?? "—"}</small></div></div>
         </header>
 
@@ -304,7 +328,7 @@ export default function AdminDashboard() {
             )}
           </div>
         </section>
-        </> : (
+        </> : activeView === "audit" ? (
           <section className="audit-console panel">
             <form className="audit-filters" onSubmit={(event) => { event.preventDefault(); void loadAudits({ ...auditFilters, page: 1 }); }}>
               <label>动作类型
@@ -363,6 +387,14 @@ export default function AdminDashboard() {
               <button className="secondary" disabled={auditLoading || audits.page <= 1} onClick={() => void loadAudits({ ...appliedAuditFilters, page: audits.page - 1 })}>上一页</button>
               <button className="secondary" disabled={auditLoading || audits.page >= auditPageCount} onClick={() => void loadAudits({ ...appliedAuditFilters, page: audits.page + 1 })}>下一页</button>
             </div>
+          </section>
+        ) : (
+          <section className="registration-panel panel">
+            <div className="panel-heading"><div><p>待审核</p><h2>家属注册申请</h2></div><span>{applications.length} 项</span></div>
+            <p className="registration-intro">仅核验申请人身份与关系信息。密码以安全哈希保存，审核人员无法查看。</p>
+            {loading && <div className="empty">正在读取申请队列…</div>}
+            {!loading && applications.length === 0 && <div className="empty">当前没有待审核的注册申请</div>}
+            <div className="application-list">{applications.map((application) => <article key={application.id} className="application-row"><div><strong>{application.displayName}</strong><p>{application.relationship} · 关联老人：{application.elderName}</p><small>{application.loginIdentifier} · 提交于 {formatTime(application.createdAt)}</small></div><div className="registration-actions"><button className="secondary" disabled={reviewingId !== null} onClick={() => { void reviewApplication(application, "rejected"); }}>驳回</button><button className="primary" disabled={reviewingId !== null} onClick={() => { void reviewApplication(application, "approved"); }}>{reviewingId === application.id ? "提交中…" : "通过并激活"}</button></div></article>)}</div>
           </section>
         )}
       </section>

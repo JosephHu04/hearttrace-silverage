@@ -20,11 +20,48 @@ def uuid_string() -> str:
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (Index("uq_users_login_identifier", "login_identifier", unique=True),)
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     display_name: Mapped[str] = mapped_column(String(100))
     role: Mapped[str] = mapped_column(String(32), index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    login_identifier: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    password_hash: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
+    password_changed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class RegistrationApplication(Base):
+    __tablename__ = "registration_applications"
+    __table_args__ = (
+        Index("ix_registration_applications_queue", "status", "created_at"),
+        Index("ix_registration_applications_login_identifier", "login_identifier", unique=True),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=uuid_string)
+    display_name: Mapped[str] = mapped_column(String(100))
+    login_identifier: Mapped[str] = mapped_column(String(120))
+    relationship: Mapped[str] = mapped_column(String(80))
+    elder_name: Mapped[str] = mapped_column(String(100))
+    password_hash: Mapped[str] = mapped_column(String(256))
+    consent_version: Mapped[str] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(24), default="pending", index=True)
+    reviewed_by: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    review_note: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class PasswordRecoveryToken(Base):
+    __tablename__ = "password_recovery_tokens"
+    __table_args__ = (Index("ix_password_recovery_tokens_lookup", "token_hash", "expires_at"),)
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=uuid_string)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    consumed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
