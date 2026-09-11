@@ -29,7 +29,7 @@
 | `GET /api/admin/risk-events` | admin、professional | 风险队列，支持 level、status、page、perPage |
 | `GET /api/admin/risk-events/{id}` | admin、professional | 结构化证据、版本和处置时间线；访问会审计 |
 | `POST /api/admin/risk-events/{id}/actions` | admin、professional | 按状态机执行复核动作 |
-| `GET /api/admin/audit-logs` | admin、professional（暂定） | 按 targetType、targetId 查询审计 |
+| `GET /api/admin/audit-logs` | admin、professional（暂定） | 按 actorId、action、targetType、targetId 查询审计，支持分页 |
 
 处置请求示例：
 
