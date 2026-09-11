@@ -44,3 +44,17 @@ def no_access_family_headers(client: TestClient) -> dict[str, str]:
     response = client.post("/api/auth/demo-login", json={"actorId": "family-no-access-001"})
     assert response.status_code == 200
     return {"Authorization": f"Bearer {response.json()['accessToken']}"}
+
+
+@pytest.fixture
+def elder_headers(client: TestClient) -> dict[str, str]:
+    response = client.post("/api/auth/demo-login", json={"actorId": "elder-demo-001"})
+    assert response.status_code == 200
+    return {"Authorization": f"Bearer {response.json()['accessToken']}"}
+
+
+@pytest.fixture
+def device_headers(client: TestClient) -> dict[str, str]:
+    response = client.post("/api/auth/demo-login", json={"actorId": "device-demo-001"})
+    assert response.status_code == 200
+    return {"Authorization": f"Bearer {response.json()['accessToken']}"}

@@ -5,6 +5,7 @@ from sqlalchemy import select
 
 from app.db.models import (
     DailyInsight,
+    EmergencyEvent,
     ElderProfile,
     FamilyActionRecord,
     FamilyElderGrant,
@@ -74,6 +75,12 @@ def family_today(elder_id: str, db: DbSession, actor: FamilyActor) -> FamilyToda
         .order_by(RiskEvent.created_at.desc())
         .limit(1)
     )
+    active_emergency = db.scalar(
+        select(EmergencyEvent)
+        .where(EmergencyEvent.elder_id == elder_id, EmergencyEvent.status.in_({"open", "acknowledged"}))
+        .order_by(EmergencyEvent.created_at.desc())
+        .limit(1)
+    )
     add_audit_log(
         db,
         actor_id=actor.id,
@@ -95,8 +102,14 @@ def family_today(elder_id: str, db: DbSession, actor: FamilyActor) -> FamilyToda
         ),
         topics=[FamilyTopicOut.model_validate(item) for item in insight.topics],
         safety=FamilySafetyOut(
-            has_active_emergency=insight.has_active_emergency,
-            message=insight.safety_message,
+            has_active_emergency=active_emergency is not None,
+            message=(
+                "紧急求助已被工作人员确认，正在持续跟进"
+                if active_emergency is not None and active_emergency.status == "acknowledged"
+                else "老人已发出紧急求助，请尽快确认其安全"
+                if active_emergency is not None
+                else insight.safety_message
+            ),
         ),
         risk_event_id=risk_event.id if risk_event else None,
     )

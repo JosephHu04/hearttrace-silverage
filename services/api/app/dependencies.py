@@ -56,3 +56,12 @@ def require_family(actor: CurrentActor) -> User:
 
 
 FamilyActor = Annotated[User, Depends(require_family)]
+
+
+def require_emergency_actor(actor: CurrentActor) -> User:
+    if actor.role not in {"elder", "device_operator"}:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="当前角色不能发起紧急求助")
+    return actor
+
+
+EmergencyActor = Annotated[User, Depends(require_emergency_actor)]

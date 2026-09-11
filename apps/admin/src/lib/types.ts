@@ -131,3 +131,42 @@ export type RegistrationApplication = {
 };
 
 export type RegistrationApplicationList = { items: RegistrationApplication[]; total: number };
+
+export type EmergencySource = "elder_button" | "device_button";
+export type EmergencyStatus = "open" | "acknowledged" | "resolved" | "cancelled";
+export type EmergencyAction = "acknowledge" | "resolve" | "cancel" | "reopen";
+
+export type EmergencyEvent = {
+  id: string;
+  elderId: string;
+  elderName: string;
+  triggerActorId: string;
+  source: EmergencySource;
+  status: EmergencyStatus;
+  note: string | null;
+  acknowledgedBy: string | null;
+  acknowledgedAt: string | null;
+  resolvedBy: string | null;
+  resolvedAt: string | null;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type EmergencyListResponse = {
+  items: EmergencyEvent[];
+  page: number;
+  perPage: number;
+  total: number;
+};
+
+export type EmergencyActionResponse = {
+  event: EmergencyEvent;
+  action: {
+    id: string;
+    action: EmergencyAction;
+    note: string | null;
+    createdAt: string;
+  };
+  duplicate: boolean;
+};

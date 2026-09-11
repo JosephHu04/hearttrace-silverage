@@ -46,7 +46,7 @@ infra/              本地开发与部署配置
 ## 当前实现进度
 
 - 家属端：六个关怀页面、演示账号切换，以及授权摘要和关怀行动的核心 API 联调。
-- 管理端：风险队列、结构化证据、状态机处置和操作时间线。
-- 核心 API：演示 JWT、服务端 RBAC、风险复核、幂等与乐观版本、审计日志、SQLite/PostgreSQL 配置及 Alembic 初始迁移。
+- 管理端：风险队列、家属注册审核、紧急求助处置、结构化证据、状态机操作和审计查询。
+- 核心 API：演示 JWT、服务端 RBAC、家属与设备绑定隔离、风险复核、紧急求助、幂等与乐观版本、审计日志、SQLite/PostgreSQL 配置及 Alembic 迁移。
 
 本地运行方式见 [管理端说明](apps/admin/README.md) 和 [核心 API 说明](services/api/README.md)。
