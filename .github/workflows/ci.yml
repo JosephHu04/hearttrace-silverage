@@ -51,6 +51,24 @@ jobs:
       - name: Build and type-check family application
         run: npm run build
 
+  build-elder:
+    name: build-elder
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/elder
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/elder/package-lock.json
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Build and type-check elder application
+        run: npm run build
+
   build-admin:
     name: build-admin
     runs-on: ubuntu-latest
