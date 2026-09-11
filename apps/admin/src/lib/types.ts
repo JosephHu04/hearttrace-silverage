@@ -88,6 +88,33 @@ export type RiskActionResponse = {
   duplicate: boolean;
 };
 
+export type AuditLogItem = {
+  id: string;
+  actorId: string;
+  actorDisplayName: string | null;
+  action: string;
+  targetType: string;
+  targetId: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+};
+
+export type AuditListResponse = {
+  items: AuditLogItem[];
+  page: number;
+  perPage: number;
+  total: number;
+};
+
+export type AuditFilters = {
+  actorId?: string;
+  action?: string;
+  targetType?: string;
+  targetId?: string;
+  page?: number;
+  perPage?: number;
+};
+
 export type RegistrationStatus = "pending" | "approved" | "rejected";
 
 export type RegistrationApplication = {

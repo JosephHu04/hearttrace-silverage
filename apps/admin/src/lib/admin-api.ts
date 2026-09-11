@@ -1,4 +1,4 @@
-import type { LoginResult, RegistrationApplication, RegistrationApplicationList, RiskAction, RiskActionResponse, RiskDetail, RiskListResponse } from "./types";
+import type { AuditFilters, AuditListResponse, LoginResult, RegistrationApplication, RegistrationApplicationList, RiskAction, RiskActionResponse, RiskDetail, RiskListResponse } from "./types";
 
 const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
@@ -53,6 +53,19 @@ export function performRiskAction(
       expectedVersion,
       note: note?.trim() || null
     })
+  });
+}
+
+export function getAuditLogs(token: string, filters: AuditFilters = {}) {
+  const query = new URLSearchParams();
+  if (filters.actorId) query.set("actorId", filters.actorId);
+  if (filters.action) query.set("action", filters.action);
+  if (filters.targetType) query.set("targetType", filters.targetType);
+  if (filters.targetId) query.set("targetId", filters.targetId);
+  query.set("page", String(filters.page ?? 1));
+  query.set("perPage", String(filters.perPage ?? 25));
+  return request<AuditListResponse>(`/api/admin/audit-logs?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` }
   });
 }
 

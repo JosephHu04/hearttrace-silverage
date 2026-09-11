@@ -1,8 +1,28 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { demoLogin, getRegistrationApplications, getRiskDetail, getRiskQueue, performRiskAction, reviewRegistrationApplication } from "@/lib/admin-api";
-import type { Actor, RegistrationApplication, RiskAction, RiskDetail, RiskListItem, RiskStatus } from "@/lib/types";
+import { demoLogin, getAuditLogs, getRegistrationApplications, getRiskDetail, getRiskQueue, performRiskAction, reviewRegistrationApplication } from "@/lib/admin-api";
+import type { Actor, AuditFilters, AuditListResponse, RegistrationApplication, RiskAction, RiskDetail, RiskListItem, RiskStatus } from "@/lib/types";
+
+type AdminView = "risk" | "audit" | "registrations";
+
+const emptyAuditFilters: AuditFilters = { actorId: "", action: "", targetType: "", targetId: "", page: 1, perPage: 25 };
+
+const auditActionLabels: Record<string, string> = {
+  "risk.viewed": "查看风险详情",
+  "risk.claim": "认领风险事件",
+  "risk.begin_review": "开始人工复核",
+  "risk.request_action": "要求跟进",
+  "risk.escalate": "升级处置",
+  "risk.resolve": "记录已解决",
+  "risk.mark_false_positive": "标记误报",
+  "risk.close": "关闭风险事件",
+  "risk.reopen": "重新打开",
+  "family.today_viewed": "家属查看今日摘要",
+  "family.contacted": "家属记录已联系",
+  "family.video_planned": "家属安排视频联络",
+  "family.referral_requested": "家属申请专业转介"
+};
 
 const statusLabels: Record<RiskStatus, string> = {
   new: "待认领",
@@ -51,7 +71,7 @@ function formatTime(value: string | null) {
 }
 
 export default function AdminDashboard() {
-  const [section, setSection] = useState<"risks" | "registrations">("risks");
+  const [activeView, setActiveView] = useState<AdminView>("risk");
   const [actor, setActor] = useState<Actor | null>(null);
   const [token, setToken] = useState("");
   const [risks, setRisks] = useState<RiskListItem[]>([]);
@@ -61,6 +81,10 @@ export default function AdminDashboard() {
   const [busyAction, setBusyAction] = useState<RiskAction | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("正在连接共享业务后端");
+  const [audits, setAudits] = useState<AuditListResponse>({ items: [], page: 1, perPage: 25, total: 0 });
+  const [auditFilters, setAuditFilters] = useState<AuditFilters>(emptyAuditFilters);
+  const [appliedAuditFilters, setAppliedAuditFilters] = useState<AuditFilters>(emptyAuditFilters);
+  const [auditLoading, setAuditLoading] = useState(false);
   const [applications, setApplications] = useState<RegistrationApplication[]>([]);
   const [reviewingId, setReviewingId] = useState<string | null>(null);
 
@@ -75,9 +99,9 @@ export default function AdminDashboard() {
         const queue = await getRiskQueue(login.accessToken);
         if (!active) return;
         setRisks(queue.items);
-        const applicationQueue = await getRegistrationApplications(login.accessToken);
+        const registrationQueue = await getRegistrationApplications(login.accessToken);
         if (!active) return;
-        setApplications(applicationQueue.items);
+        setApplications(registrationQueue.items);
         if (queue.items[0]) {
           const detail = await getRiskDetail(login.accessToken, queue.items[0].id);
           if (!active) return;
@@ -141,6 +165,33 @@ export default function AdminDashboard() {
     }
   };
 
+  const loadAudits = async (filters: AuditFilters) => {
+    if (!token) return;
+    setAuditLoading(true);
+    setError("");
+    try {
+      const result = await getAuditLogs(token, filters);
+      setAudits(result);
+      setAppliedAuditFilters(filters);
+      setNotice(`已读取 ${result.total} 条审计记录`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "读取审计记录失败");
+    } finally {
+      setAuditLoading(false);
+    }
+  };
+
+  const openView = (view: AdminView) => {
+    setActiveView(view);
+    setError("");
+    if (view === "audit" && audits.items.length === 0) void loadAudits(emptyAuditFilters);
+    if (view === "registrations") {
+      void getRegistrationApplications(token).then((queue) => setApplications(queue.items)).catch(() => setError("读取注册申请失败"));
+    }
+  };
+
+  const auditPageCount = Math.max(1, Math.ceil(audits.total / audits.perPage));
+
   const reviewApplication = async (application: RegistrationApplication, decision: "approved" | "rejected") => {
     if (!token) return;
     setReviewingId(application.id);
@@ -161,12 +212,12 @@ export default function AdminDashboard() {
       <aside className="sidebar">
         <div className="brand"><span>心</span><div><strong>心迹银龄</strong><small>管理工作台</small></div></div>
         <nav aria-label="管理端主导航">
-          <button className={`nav-item ${section === "risks" ? "active" : ""}`} onClick={() => setSection("risks")}><span>01</span>风险复核</button>
-          <button className={`nav-item ${section === "registrations" ? "active" : ""}`} onClick={() => setSection("registrations")}><span>02</span>注册审核{applications.length > 0 && <em>{applications.length} 待办</em>}</button>
+          <button className={`nav-item ${activeView === "risk" ? "active" : ""}`} onClick={() => openView("risk")}><span>01</span>风险复核</button>
+          <button className={`nav-item ${activeView === "registrations" ? "active" : ""}`} onClick={() => openView("registrations")}><span>02</span>注册审核{applications.length > 0 && <em>{applications.length} 待办</em>}</button>
           <button className="nav-item" disabled><span>03</span>安全事件<em>待接入</em></button>
           <button className="nav-item" disabled><span>04</span>关系与授权<em>待接入</em></button>
           <button className="nav-item" disabled><span>05</span>设备管理<em>待接入</em></button>
-          <button className="nav-item" disabled><span>06</span>审计查询<em>已开放 API</em></button>
+          <button className={`nav-item ${activeView === "audit" ? "active" : ""}`} onClick={() => openView("audit")}><span>06</span>审计查询</button>
         </nav>
         <div className="sidebar-note">
           <span className="connection-dot" />
@@ -177,7 +228,7 @@ export default function AdminDashboard() {
 
       <section className="workspace">
         <header className="topbar">
-          <div><p>{section === "risks" ? "风险复核 / 今日工作" : "账号管理 / 关系核验"}</p><h1>{section === "risks" ? "先处理需要人工判断的事项" : "审核家属账户申请"}</h1></div>
+          <div><p>{activeView === "risk" ? "风险复核 / 今日工作" : activeView === "audit" ? "审计查询 / 操作留痕" : "账号管理 / 关系核验"}</p><h1>{activeView === "risk" ? "先处理需要人工判断的事项" : activeView === "audit" ? "核对每一次敏感读取与人工操作" : "审核家属账户申请"}</h1></div>
           <div className="actor"><span>{actor?.displayName?.slice(0, 1) ?? "管"}</span><div><strong>{actor?.displayName ?? "正在登录"}</strong><small>{actor?.role ?? "—"}</small></div></div>
         </header>
 
@@ -185,14 +236,15 @@ export default function AdminDashboard() {
           <b>{error ? "!" : "i"}</b>{error || notice}
         </div>
 
-        {section === "risks" && <section className="metrics" aria-label="风险概览">
+        {activeView === "risk" ? <>
+        <section className="metrics" aria-label="风险概览">
           <article><p>开放事项</p><strong>{loading ? "—" : activeCount}</strong><small>等待认领或处置</small></article>
           <article className="urgent"><p>橙红风险</p><strong>{loading ? "—" : urgentCount}</strong><small>优先完成复核</small></article>
           <article><p>当前队列</p><strong>{loading ? "—" : risks.length}</strong><small>已按创建时间排序</small></article>
           <article><p>证据策略</p><strong className="text-value">结构化</strong><small>默认不返回聊天全文</small></article>
-        </section>}
+        </section>
 
-        {section === "risks" && <section className="review-layout">
+        <section className="review-layout">
           <div className="queue-panel panel">
             <div className="panel-heading"><div><p>待办队列</p><h2>风险事件</h2></div><span>{risks.length} 项</span></div>
             <div className="queue-list">
@@ -275,14 +327,76 @@ export default function AdminDashboard() {
               </>
             )}
           </div>
-        </section>}
-        {section === "registrations" && <section className="registration-panel panel">
-          <div className="panel-heading"><div><p>待审核</p><h2>家属注册申请</h2></div><span>{applications.length} 项</span></div>
-          <p className="registration-intro">仅核验申请人身份与关系信息。密码以安全哈希保存，审核人员无法查看。</p>
-          {loading && <div className="empty">正在读取申请队列…</div>}
-          {!loading && applications.length === 0 && <div className="empty">当前没有待审核的注册申请</div>}
-          <div className="application-list">{applications.map((application) => <article key={application.id} className="application-row"><div><strong>{application.displayName}</strong><p>{application.relationship} · 关联老人：{application.elderName}</p><small>{application.loginIdentifier} · 提交于 {formatTime(application.createdAt)}</small></div><div className="registration-actions"><button className="secondary" disabled={reviewingId !== null} onClick={() => { void reviewApplication(application, "rejected"); }}>驳回</button><button className="primary" disabled={reviewingId !== null} onClick={() => { void reviewApplication(application, "approved"); }}>{reviewingId === application.id ? "提交中…" : "通过并激活"}</button></div></article>)}</div>
-        </section>}
+        </section>
+        </> : activeView === "audit" ? (
+          <section className="audit-console panel">
+            <form className="audit-filters" onSubmit={(event) => { event.preventDefault(); void loadAudits({ ...auditFilters, page: 1 }); }}>
+              <label>动作类型
+                <select value={auditFilters.action} onChange={(event) => setAuditFilters((current) => ({ ...current, action: event.target.value }))}>
+                  <option value="">全部动作</option>
+                  <option value="risk.viewed">查看风险详情</option>
+                  <option value="risk.claim">认领风险事件</option>
+                  <option value="risk.begin_review">开始人工复核</option>
+                  <option value="risk.request_action">要求跟进</option>
+                  <option value="risk.escalate">升级处置</option>
+                  <option value="risk.resolve">记录已解决</option>
+                  <option value="risk.mark_false_positive">标记误报</option>
+                  <option value="risk.close">关闭风险事件</option>
+                  <option value="risk.reopen">重新打开</option>
+                  <option value="family.today_viewed">家属查看摘要</option>
+                  <option value="family.contacted">家属记录已联系</option>
+                  <option value="family.video_planned">家属安排视频联络</option>
+                  <option value="family.referral_requested">家属申请专业转介</option>
+                </select>
+              </label>
+              <label>操作者 ID
+                <input value={auditFilters.actorId} onChange={(event) => setAuditFilters((current) => ({ ...current, actorId: event.target.value }))} placeholder="staff-admin-001" />
+              </label>
+              <label>对象类型
+                <select value={auditFilters.targetType} onChange={(event) => setAuditFilters((current) => ({ ...current, targetType: event.target.value }))}>
+                  <option value="">全部对象</option>
+                  <option value="risk_event">风险事件</option>
+                  <option value="elder">老人账号</option>
+                </select>
+              </label>
+              <label>对象 ID
+                <input value={auditFilters.targetId} onChange={(event) => setAuditFilters((current) => ({ ...current, targetId: event.target.value }))} placeholder="risk-demo-001" />
+              </label>
+              <div className="filter-actions">
+                <button className="primary" type="submit" disabled={auditLoading}>{auditLoading ? "查询中…" : "查询"}</button>
+                <button className="secondary" type="button" onClick={() => { setAuditFilters(emptyAuditFilters); void loadAudits(emptyAuditFilters); }}>清空</button>
+              </div>
+            </form>
+
+            <div className="audit-summary"><div><p>查询结果</p><h2>敏感操作留痕</h2></div><span>{audits.total} 条记录 · 第 {audits.page}/{auditPageCount} 页</span></div>
+            <div className="audit-table" role="table" aria-label="审计记录">
+              <div className="audit-row audit-header" role="row"><span>时间</span><span>操作者</span><span>动作</span><span>对象</span><span>元数据</span></div>
+              {auditLoading && <div className="empty">正在读取审计记录…</div>}
+              {!auditLoading && audits.items.length === 0 && <div className="empty">没有符合条件的审计记录</div>}
+              {!auditLoading && audits.items.map((item) => (
+                <article className="audit-row" role="row" key={item.id}>
+                  <time>{formatTime(item.createdAt)}</time>
+                  <span><strong>{item.actorDisplayName ?? item.actorId}</strong><small>{item.actorId}</small></span>
+                  <span><strong>{auditActionLabels[item.action] ?? item.action}</strong><small>{item.action}</small></span>
+                  <span><strong>{item.targetType}</strong><small>{item.targetId}</small></span>
+                  <code>{Object.keys(item.metadata).length ? JSON.stringify(item.metadata) : "—"}</code>
+                </article>
+              ))}
+            </div>
+            <div className="audit-pagination">
+              <button className="secondary" disabled={auditLoading || audits.page <= 1} onClick={() => void loadAudits({ ...appliedAuditFilters, page: audits.page - 1 })}>上一页</button>
+              <button className="secondary" disabled={auditLoading || audits.page >= auditPageCount} onClick={() => void loadAudits({ ...appliedAuditFilters, page: audits.page + 1 })}>下一页</button>
+            </div>
+          </section>
+        ) : (
+          <section className="registration-panel panel">
+            <div className="panel-heading"><div><p>待审核</p><h2>家属注册申请</h2></div><span>{applications.length} 项</span></div>
+            <p className="registration-intro">仅核验申请人身份与关系信息。密码以安全哈希保存，审核人员无法查看。</p>
+            {loading && <div className="empty">正在读取申请队列…</div>}
+            {!loading && applications.length === 0 && <div className="empty">当前没有待审核的注册申请</div>}
+            <div className="application-list">{applications.map((application) => <article key={application.id} className="application-row"><div><strong>{application.displayName}</strong><p>{application.relationship} · 关联老人：{application.elderName}</p><small>{application.loginIdentifier} · 提交于 {formatTime(application.createdAt)}</small></div><div className="registration-actions"><button className="secondary" disabled={reviewingId !== null} onClick={() => { void reviewApplication(application, "rejected"); }}>驳回</button><button className="primary" disabled={reviewingId !== null} onClick={() => { void reviewApplication(application, "approved"); }}>{reviewingId === application.id ? "提交中…" : "通过并激活"}</button></div></article>)}</div>
+          </section>
+        )}
       </section>
     </main>
   );
