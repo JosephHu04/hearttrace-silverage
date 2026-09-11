@@ -120,3 +120,24 @@ def test_invalid_transition_and_stale_version_return_conflict(
         json=action_payload("begin_review", 1),
     )
     assert stale.status_code == 409
+
+
+def test_audit_log_filters_and_actor_display_name(client: TestClient, admin_headers: dict[str, str]):
+    client.get("/api/admin/risk-events/risk-demo-001", headers=admin_headers)
+
+    matching = client.get(
+        "/api/admin/audit-logs?action=risk.viewed&actorId=staff-admin-001&targetType=risk_event",
+        headers=admin_headers,
+    )
+    assert matching.status_code == 200
+    body = matching.json()
+    assert body["total"] == 1
+    assert body["items"][0]["actorDisplayName"] == "周老师"
+    assert body["items"][0]["targetId"] == "risk-demo-001"
+
+    empty = client.get(
+        "/api/admin/audit-logs?action=risk.resolve&actorId=staff-admin-001",
+        headers=admin_headers,
+    )
+    assert empty.status_code == 200
+    assert empty.json()["items"] == []

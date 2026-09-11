@@ -136,6 +136,7 @@ class RiskActionResult(ApiModel):
 class AuditLogOut(ApiModel):
     id: str
     actor_id: str
+    actor_display_name: Optional[str] = None
     action: str
     target_type: str
     target_id: str

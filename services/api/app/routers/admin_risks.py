@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, select
 
-from app.db.models import AuditLog, RiskAction, RiskEvent
+from app.db.models import AuditLog, RiskAction, RiskEvent, User
 from app.dependencies import DbSession, RiskStaff
 from app.schemas import (
     AuditListOut,
@@ -130,20 +130,27 @@ def risk_action(event_id: str, body: RiskActionRequest, db: DbSession, actor: Ri
 def audit_logs(
     db: DbSession,
     actor: RiskStaff,
+    actor_id: Optional[str] = Query(default=None, alias="actorId", max_length=64),
+    action: Optional[str] = Query(default=None, max_length=64),
     target_type: Optional[str] = Query(default=None, alias="targetType"),
     target_id: Optional[str] = Query(default=None, alias="targetId"),
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=50, ge=1, le=100, alias="perPage"),
 ) -> AuditListOut:
     filters = []
+    if actor_id:
+        filters.append(AuditLog.actor_id == actor_id)
+    if action:
+        filters.append(AuditLog.action == action)
     if target_type:
         filters.append(AuditLog.target_type == target_type)
     if target_id:
         filters.append(AuditLog.target_id == target_id)
     total = db.scalar(select(func.count()).select_from(AuditLog).where(*filters)) or 0
-    entries = list(
-        db.scalars(
-            select(AuditLog)
+    rows = list(
+        db.execute(
+            select(AuditLog, User.display_name)
+            .join(User, User.id == AuditLog.actor_id)
             .where(*filters)
             .order_by(AuditLog.created_at.desc())
             .offset((page - 1) * per_page)
@@ -155,13 +162,14 @@ def audit_logs(
             AuditLogOut(
                 id=entry.id,
                 actor_id=entry.actor_id,
+                actor_display_name=actor_display_name,
                 action=entry.action,
                 target_type=entry.target_type,
                 target_id=entry.target_id,
                 metadata=entry.metadata_json,
                 created_at=entry.created_at,
             )
-            for entry in entries
+            for entry, actor_display_name in rows
         ],
         page=page,
         per_page=per_page,
