@@ -265,6 +265,24 @@ class FamilyActionRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class FamilyCarePlanItem(Base):
+    """A private, family-owned follow-up item for an authorized elder."""
+
+    __tablename__ = "family_care_plan_items"
+    __table_args__ = (
+        Index("ix_family_care_plan_owner", "family_id", "elder_id", "created_at"),
+        Index("ix_family_care_plan_elder", "elder_id", "completed_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=uuid_string)
+    family_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    elder_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    title: Mapped[str] = mapped_column(String(140))
+    scheduled_for: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class EmergencyEvent(Base):
     __tablename__ = "emergency_events"
     __table_args__ = (
