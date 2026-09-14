@@ -41,6 +41,26 @@ export type FamilyToday = {
 
 export type FamilyAction = "contacted" | "video_planned" | "referral_requested";
 
+export type FamilyTrendPoint = {
+  recordedAt: string;
+  score: number;
+  level: ConcernLevel;
+  label: string;
+};
+
+export type FamilyTrend = {
+  periodDays: number;
+  items: FamilyTrendPoint[];
+};
+
+export type FamilyCarePlanItem = {
+  id: string;
+  title: string;
+  scheduledFor: string | null;
+  completedAt: string | null;
+  createdAt: string;
+};
+
 export type ActionResult = {
   status: "recorded";
   action: FamilyAction;

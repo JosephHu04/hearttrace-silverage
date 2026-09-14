@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getFamilyElders, getFamilyToday, recordFamilyAction } from "@/lib/family-api";
+import { completeFamilyCarePlanItem, createFamilyCarePlanItem, getFamilyCarePlan, getFamilyElders, getFamilyToday, getFamilyTrend, recordFamilyAction } from "@/lib/family-api";
 import { mockFamilyToday } from "@/lib/mock-family-data";
-import type { FamilyAction, FamilyElder, FamilyToday } from "@/lib/types";
+import type { FamilyAction, FamilyCarePlanItem, FamilyElder, FamilyToday, FamilyTrend } from "@/lib/types";
 
 type PageKey = "today" | "report" | "trend" | "risk" | "plan" | "privacy";
 
@@ -40,6 +40,9 @@ export default function FamilyDashboard() {
   const [action, setAction] = useState("尚未记录行动");
   const [notice, setNotice] = useState("正在读取已授权的摘要、趋势和安全事件状态。");
   const [today, setToday] = useState<FamilyToday>(mockFamilyToday);
+  const [trend, setTrend] = useState<FamilyTrend | null>(null);
+  const [trendDays, setTrendDays] = useState<7 | 30>(7);
+  const [carePlan, setCarePlan] = useState<FamilyCarePlanItem[]>([]);
   const [elders, setElders] = useState<FamilyElder[]>([]);
   const [selectedElderId, setSelectedElderId] = useState<string | null>(null);
   const [apiState, setApiState] = useState<"loading" | "connected" | "unavailable" | "denied" | "signed_out">("loading");
@@ -108,13 +111,19 @@ export default function FamilyDashboard() {
     let active = true;
     setApiState("loading");
     setAction("尚未记录行动");
-    setNotice("正在读取当前老人的授权摘要、关怀行动与安全状态。");
-    void getFamilyToday(token, selectedElderId)
-      .then((data) => {
+    setNotice("正在读取当前老人的授权摘要、趋势、计划与安全状态。");
+    void Promise.all([
+      getFamilyToday(token, selectedElderId),
+      getFamilyTrend(token, selectedElderId, trendDays),
+      getFamilyCarePlan(token, selectedElderId)
+    ])
+      .then(([todayData, trendData, planData]) => {
         if (!active) return;
-        setToday(data);
+        setToday(todayData);
+        setTrend(trendData);
+        setCarePlan(planData);
         setApiState("connected");
-        setNotice(`已读取授权摘要，当前老人：${data.elder.name}。`);
+        setNotice(`已读取授权摘要、${trendData.items.length} 条趋势记录与私人关怀计划，当前老人：${todayData.elder.name}。`);
       })
       .catch(() => {
         if (!active) return;
@@ -122,7 +131,7 @@ export default function FamilyDashboard() {
         setNotice("暂时无法读取该老人的授权数据，未展示任何模拟或缓存信息。请稍后重试。");
       });
     return () => { active = false; };
-  }, [token, selectedElderId]);
+  }, [token, selectedElderId, trendDays]);
 
   const logout = () => {
     sessionStorage.removeItem("hearttrace.family.session");
@@ -145,6 +154,34 @@ export default function FamilyDashboard() {
     } catch {
       setAction(`待同步：${label}`);
       setNotice("行动暂未同步到服务端，请在网络恢复后重试。演示数据没有被视为正式记录。");
+    }
+  };
+
+  const addCarePlan = async (title: string, scheduledFor?: string) => {
+    if (!token || !selectedElderId || !today.access.careActionsAllowed) return;
+    const normalizedTitle = title.trim();
+    if (normalizedTitle.length < 2) {
+      setNotice("请至少填写两个字的关怀计划内容。");
+      return;
+    }
+    try {
+      const item = await createFamilyCarePlanItem(token, selectedElderId, normalizedTitle, scheduledFor);
+      setCarePlan((items) => [...items, item]);
+      setNotice("关怀计划已保存，只有当前已授权家属可查看和完成它。");
+    } catch {
+      setNotice("关怀计划暂未保存，请检查网络和授权后重试。");
+      throw new Error("care plan save failed");
+    }
+  };
+
+  const completeCarePlan = async (itemId: string) => {
+    if (!token || !selectedElderId || !today.access.careActionsAllowed) return;
+    try {
+      const completed = await completeFamilyCarePlanItem(token, selectedElderId, itemId);
+      setCarePlan((items) => items.map((item) => item.id === itemId ? completed : item));
+      setNotice("已完成的关怀计划已保存，并已写入审计记录。");
+    } catch {
+      setNotice("计划状态暂未更新，请稍后重试。");
     }
   };
 
@@ -197,9 +234,9 @@ export default function FamilyDashboard() {
           <>
             {page === "today" && <TodayView today={today} action={action} onAction={recordAction} onNavigate={() => setPage("report")} />}
             {page === "report" && <ReportView today={today} />}
-            {page === "trend" && <TrendView today={today} />}
+            {page === "trend" && <TrendView today={today} trend={trend} selectedDays={trendDays} onSelectDays={setTrendDays} />}
             {page === "risk" && <RiskView today={today} action={action} onAction={recordAction} />}
-            {page === "plan" && <PlanView today={today} onAction={recordAction} />}
+            {page === "plan" && <PlanView today={today} items={carePlan} onAction={recordAction} onAddItem={addCarePlan} onCompleteItem={completeCarePlan} />}
             {page === "privacy" && <PrivacyView today={today} />}
           </>
         )}
@@ -246,10 +283,16 @@ function ReportView({ today }: { today: FamilyToday }) {
   </div>;
 }
 
-function TrendView({ today }: { today: FamilyToday }) {
-  const points = "0,74 55,62 110,66 165,45 220,52 275,38 330,47 385,41 440,58";
+function TrendView({ today, trend, selectedDays, onSelectDays }: { today: FamilyToday; trend: FamilyTrend | null; selectedDays: 7 | 30; onSelectDays: (days: 7 | 30) => void }) {
+  const points = trend?.items ?? [];
+  const chartPoints = points.map((item, index) => {
+    const x = points.length === 1 ? 220 : (440 / (points.length - 1)) * index;
+    const y = 108 - (Math.max(0, Math.min(100, item.score)) * 0.9);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+  const dateLabel = (value: string) => new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric" }).format(new Date(value));
   return <div className="page-grid trend-grid">
-    <Card className="trend-card"><div className="card-heading"><div><p className="muted">近 7 天</p><h2>只与{today.elder.name}自己的基线比较</h2></div><div className="segmented"><button className="selected">7 天</button><button>30 天</button></div></div><div className="chart-wrap"><div className="chart-y"><span>90</span><span>70</span><span>50</span><span>30</span></div><svg viewBox="0 0 450 120" role="img" aria-label="近七日心境趋势图"><defs><linearGradient id="fill" x1="0" x2="0" y1="0" y2="1"><stop stopColor="#c9c6f4" stopOpacity=".55"/><stop offset="1" stopColor="#c9c6f4" stopOpacity="0"/></linearGradient></defs><path d={`M0,120 L${points} L440,120 Z`} fill="url(#fill)"/><polyline points={points} fill="none" stroke="#6f6ab5" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>{points.split(" ").map((point) => { const [cx, cy] = point.split(","); return <circle key={point} cx={cx} cy={cy} r="4" fill="#fff" stroke="#6f6ab5" strokeWidth="2"/>; })}</svg></div><div className="chart-labels"><span>周四</span><span>周五</span><span>周六</span><span>周日</span><span>周一</span><span>周二</span><span>今天</span></div></Card>
+    <Card className="trend-card"><div className="card-heading"><div><p className="muted">近 {selectedDays} 天</p><h2>只与{today.elder.name}自己的基线比较</h2></div><div className="segmented"><button className={selectedDays === 7 ? "selected" : ""} onClick={() => onSelectDays(7)}>7 天</button><button className={selectedDays === 30 ? "selected" : ""} onClick={() => onSelectDays(30)}>30 天</button></div></div>{points.length === 0 ? <div className="empty-chart"><b>暂无足够的趋势记录</b><span>后续经人工确认的每日摘要会在这里按天展示。</span></div> : <><div className="chart-wrap"><div className="chart-y"><span>100</span><span>75</span><span>50</span><span>25</span></div><svg viewBox="0 0 450 120" role="img" aria-label={`近${selectedDays}天关怀趋势图`}><defs><linearGradient id="fill" x1="0" x2="0" y1="0" y2="1"><stop stopColor="#c9c6f4" stopOpacity=".55"/><stop offset="1" stopColor="#c9c6f4" stopOpacity="0"/></linearGradient></defs>{points.length > 1 && <path d={`M0,120 L${chartPoints} L440,120 Z`} fill="url(#fill)"/>}<polyline points={chartPoints} fill="none" stroke="#6f6ab5" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>{chartPoints.split(" ").map((point, index) => { const [cx, cy] = point.split(","); return <circle key={`${points[index].recordedAt}-${point}`} cx={cx} cy={cy} r="4" fill="#fff" stroke="#6f6ab5" strokeWidth="2"><title>{`${dateLabel(points[index].recordedAt)} · ${points[index].score} 分 · ${points[index].label}`}</title></circle>; })}</svg></div><div className="chart-labels">{points.map((item) => <span key={item.recordedAt}>{dateLabel(item.recordedAt)}</span>)}</div></>}</Card>
     <Card className="baseline-card"><p className="muted">趋势说明</p><h3>今天较个人基线 {today.status.baselineDelta >= 0 ? `高 ${today.status.baselineDelta}` : `低 ${Math.abs(today.status.baselineDelta)}`} 分</h3><p>变化仅用于安排关怀节奏，不直接推断疾病。</p><Tag tone={today.status.level === "green" ? "safe" : "warm"}>{today.status.label}</Tag></Card>
     <Card className="screening-card"><p className="muted">标准化筛查</p><h3>最近一次：尚未完成</h3><p>如本人愿意，可由老人端完成固定题目的自评量表；结果仅作为进一步关怀的参考。</p><button className="secondary">查看授权说明</button></Card>
   </div>;
@@ -273,8 +316,25 @@ function RiskView({ today, action, onAction }: { today: FamilyToday; action: str
   </div>;
 }
 
-function PlanView({ today, onAction }: { today: FamilyToday; onAction: (action: FamilyAction, label: string) => Promise<void> }) {
-  return <div className="page-grid plan-grid"><Card className="plan-hero"><p className="muted">下一次陪伴</p><h2>今晚 19:30 · 视频问候</h2><p>由{today.elder.name}决定是否接通。系统只负责打开已绑定的联络路径，不保存微信通话内容。</p><button className="primary" disabled={!today.access.careActionsAllowed || !today.riskEventId} onClick={() => { void onAction("video_planned", "已确认今晚视频问候"); }}>确认安排</button></Card><Card><p className="muted">本周清单</p><div className="task-list"><label><input type="checkbox" defaultChecked /> 发一条轻松的早安语音</label><label><input type="checkbox" /> 询问是否愿意视频聊天</label><label><input type="checkbox" /> 与家人协调周末探望</label></div></Card><Card><p className="muted">最近关怀记录</p><h3>已同步到服务端</h3>{today.recentActions.length === 0 ? <p>尚未记录关怀行动。</p> : <div className="action-history">{today.recentActions.map((item, index) => <div key={`${item.action}-${item.recordedAt}-${index}`}><b>{actionLabel(item.action)}</b><span>{formatDateTime(item.recordedAt)}</span></div>)}</div>}</Card><Card><p className="muted">关怀话题</p><h3>避免“盘问式”关心</h3><div className="prompt-chips"><span>今天阳光好吗？</span><span>昨晚睡得还好吗？</span><span>最近有什么开心的事？</span></div></Card></div>;
+function PlanView({ today, items, onAction, onAddItem, onCompleteItem }: { today: FamilyToday; items: FamilyCarePlanItem[]; onAction: (action: FamilyAction, label: string) => Promise<void>; onAddItem: (title: string, scheduledFor?: string) => Promise<void>; onCompleteItem: (itemId: string) => Promise<void> }) {
+  const [title, setTitle] = useState("");
+  const [scheduledFor, setScheduledFor] = useState("");
+  const [saving, setSaving] = useState(false);
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (saving) return;
+    setSaving(true);
+    try {
+      await onAddItem(title, scheduledFor ? new Date(scheduledFor).toISOString() : undefined);
+      setTitle("");
+      setScheduledFor("");
+    } catch {
+      // The parent keeps the actionable error message in the shared status area.
+    } finally {
+      setSaving(false);
+    }
+  };
+  return <div className="page-grid plan-grid"><Card className="plan-hero"><p className="muted">下一次陪伴</p><h2>和{today.elder.name}约一个舒服的时间</h2><p>由本人决定是否接通。视频功能接入后，只会打开已绑定的联络路径，不保存通话内容。</p><button className="primary" disabled={!today.access.careActionsAllowed || !today.riskEventId} onClick={() => { void onAction("video_planned", "已确认视频问候安排"); }}>记录视频安排</button></Card><Card><p className="muted">新增计划</p><form className="plan-form" onSubmit={submit}><label>关怀事项<input value={title} maxLength={140} disabled={!today.access.careActionsAllowed || saving} onChange={(event) => setTitle(event.target.value)} placeholder="例如：周末一起整理相册" /></label><label>计划时间（可选）<input type="datetime-local" value={scheduledFor} disabled={!today.access.careActionsAllowed || saving} onChange={(event) => setScheduledFor(event.target.value)} /></label><button className="secondary" disabled={!today.access.careActionsAllowed || saving}>{saving ? "正在保存…" : "保存关怀计划"}</button></form></Card><Card><p className="muted">本周清单</p><h3>只属于当前家属的计划</h3>{items.length === 0 ? <p>还没有计划。可以从一句问候或一次短通话开始。</p> : <div className="task-list">{items.map((item) => <label key={item.id} className={item.completedAt ? "task-done" : ""}><input type="checkbox" checked={Boolean(item.completedAt)} disabled={Boolean(item.completedAt) || !today.access.careActionsAllowed} onChange={() => { void onCompleteItem(item.id); }} /> <span>{item.title}</span>{item.scheduledFor && <small>{formatDateTime(item.scheduledFor)}</small>}</label>)}</div>}</Card><Card><p className="muted">最近关怀记录</p><h3>已同步到服务端</h3>{today.recentActions.length === 0 ? <p>尚未记录关怀行动。</p> : <div className="action-history">{today.recentActions.map((item, index) => <div key={`${item.action}-${item.recordedAt}-${index}`}><b>{actionLabel(item.action)}</b><span>{formatDateTime(item.recordedAt)}</span></div>)}</div>}</Card><Card><p className="muted">关怀话题</p><h3>避免“盘问式”关心</h3><div className="prompt-chips"><span>今天阳光好吗？</span><span>昨晚睡得还好吗？</span><span>最近有什么开心的事？</span></div></Card></div>;
 }
 
 function PrivacyView({ today }: { today: FamilyToday }) {
