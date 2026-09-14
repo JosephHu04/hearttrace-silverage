@@ -10,6 +10,9 @@
 | `POST /api/video-link/requests` | 老人端 | 交接至已绑定的微信联系人或电话路径 |
 | `WS /api/devices/{id}/telemetry` | 硬件端 | 设备心跳、按键状态和跌倒候选事件 |
 | `GET /api/family/elders/{id}/today` | 家属端 | 今日摘要、趋势、待办和紧急事件状态 |
+| `GET /api/family/elders/{id}/trend?days=7|30` | 家属端 | 只返回每日结构化分数、等级和日期的个人趋势 |
+| `GET/POST /api/family/elders/{id}/care-plan` | 家属端 | 查看或新增仅当前家属可见的关怀计划 |
+| `POST /api/family/elders/{id}/care-plan/{itemId}/complete` | 家属端 | 完成一项私人关怀计划 |
 | `POST /api/family/risk-events/{id}/actions` | 家属端 | 记录已查看、已联系、已探望或已转介 |
 | `GET /api/admin/fall-events` | 管理端 | 审核跌倒候选事件与设备在线状态 |
 | `POST /api/auth/registration-applications` | 家属端 | 提交家属关系核验申请；密码仅以哈希保存 |
@@ -95,6 +98,10 @@
 | `POST /api/auth/demo-login` | 比赛开发环境 | 为预置合成账号签发短期 JWT |
 | `GET /api/family/me/elders` | family | 只列出当前家属拥有有效授权的老人 |
 | `GET /api/family/elders/{id}/today` | family | 返回授权后的结构化今日摘要；访问会审计 |
+| `GET /api/family/elders/{id}/trend?days=7|30` | family | 返回授权后的按日趋势点；不含摘要或聊天内容，访问会审计 |
+| `GET /api/family/elders/{id}/care-plan` | family | 只返回当前家属自己的关怀计划，访问会审计 |
+| `POST /api/family/elders/{id}/care-plan` | family | 新增私人关怀计划，需要 `care_actions` 授权并写入审计 |
+| `POST /api/family/elders/{id}/care-plan/{itemId}/complete` | family | 完成自己的计划，重复完成保持幂等并写入审计 |
 | `POST /api/family/risk-events/{id}/actions` | family | 幂等记录联系、视频计划或转介请求；写入审计 |
 | `GET /api/admin/risk-events` | admin、professional | 风险队列，支持 level、status、page、perPage |
 | `GET /api/admin/risk-events/{id}` | admin、professional | 结构化证据、版本和处置时间线；访问会审计 |

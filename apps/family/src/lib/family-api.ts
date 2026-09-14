@@ -1,6 +1,6 @@
-import type { ActionResult, AuthMessage, FamilyAction, FamilyElderList, FamilyToday, LoginResult, RegistrationApplication } from "./types";
+import type { ActionResult, AuthMessage, FamilyAction, FamilyCarePlanItem, FamilyElderList, FamilyToday, FamilyTrend, LoginResult, RegistrationApplication } from "./types";
 
-const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
+const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
 async function request<T>(path: string, token?: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${apiBase}${path}`, {
@@ -32,6 +32,27 @@ export function getFamilyElders(token: string) {
 
 export function getFamilyToday(token: string, elderId: string) {
   return request<FamilyToday>(`/api/family/elders/${elderId}/today`, token);
+}
+
+export function getFamilyTrend(token: string, elderId: string, days: 7 | 30) {
+  return request<FamilyTrend>(`/api/family/elders/${elderId}/trend?days=${days}`, token);
+}
+
+export function getFamilyCarePlan(token: string, elderId: string) {
+  return request<FamilyCarePlanItem[]>(`/api/family/elders/${elderId}/care-plan`, token);
+}
+
+export function createFamilyCarePlanItem(token: string, elderId: string, title: string, scheduledFor?: string) {
+  return request<FamilyCarePlanItem>(`/api/family/elders/${elderId}/care-plan`, token, {
+    method: "POST",
+    body: JSON.stringify({ title, ...(scheduledFor ? { scheduledFor } : {}) })
+  });
+}
+
+export function completeFamilyCarePlanItem(token: string, elderId: string, itemId: string) {
+  return request<FamilyCarePlanItem>(`/api/family/elders/${elderId}/care-plan/${itemId}/complete`, token, {
+    method: "POST"
+  });
 }
 
 export function recordFamilyAction(token: string | null, riskEventId: string, action: FamilyAction) {

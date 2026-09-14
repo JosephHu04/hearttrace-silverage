@@ -2,10 +2,12 @@ from datetime import timedelta
 
 from sqlalchemy.orm import Session
 
+from app.core.security import hash_password
 from app.db.models import (
     DailyInsight,
     DeviceElderBinding,
     ElderProfile,
+    FamilyCarePlanItem,
     FamilyElderGrant,
     RiskEvent,
     RiskEvidence,
@@ -29,9 +31,9 @@ def seed_demo_data(db: Session) -> None:
         [
             User(id="staff-admin-001", display_name="周老师", role="admin"),
             User(id="staff-professional-001", display_name="许老师", role="professional"),
-            User(id="family-demo-001", display_name="林女士", role="family"),
-            User(id="family-demo-002", display_name="王先生", role="family"),
-            User(id="family-no-access-001", display_name="无授权测试账号", role="family"),
+            User(id="family-demo-001", display_name="林女士", role="family", login_identifier="lin.demo@hearttrace.local", password_hash=hash_password("FamilyDemo2026!")),
+            User(id="family-demo-002", display_name="王先生", role="family", login_identifier="wang.demo@hearttrace.local", password_hash=hash_password("FamilyDemo2026!")),
+            User(id="family-no-access-001", display_name="无授权测试账号", role="family", login_identifier="noaccess.demo@hearttrace.local", password_hash=hash_password("NoAccessDemo2026!")),
             User(id="elder-demo-001", display_name="陈奶奶", role="elder"),
             User(id="elder-demo-002", display_name="李爷爷", role="elder"),
             User(id="device-demo-001", display_name="陈奶奶客厅求助键", role="device_operator"),
@@ -75,6 +77,42 @@ def seed_demo_data(db: Session) -> None:
                 ],
                 has_active_emergency=False, safety_message="暂无紧急安全事件", created_at=now,
             ),
+            DailyInsight(
+                id="insight-demo-001-d1", elder_id="elder-demo-001", level="yellow", label="需要轻度关怀",
+                headline="陈奶奶昨天的交流较为平稳。", summary="仅供趋势联调的历史结构化摘要。",
+                score=76, baseline_delta=-2, topics=[], has_active_emergency=False,
+                safety_message="暂无紧急安全事件", created_at=now - timedelta(days=1),
+            ),
+            DailyInsight(
+                id="insight-demo-001-d2", elder_id="elder-demo-001", level="green", label="状态平稳",
+                headline="陈奶奶前天状态平稳。", summary="仅供趋势联调的历史结构化摘要。",
+                score=79, baseline_delta=1, topics=[], has_active_emergency=False,
+                safety_message="暂无紧急安全事件", created_at=now - timedelta(days=2),
+            ),
+            DailyInsight(
+                id="insight-demo-001-d3", elder_id="elder-demo-001", level="yellow", label="需要轻度关怀",
+                headline="陈奶奶三天前需要温和关注。", summary="仅供趋势联调的历史结构化摘要。",
+                score=71, baseline_delta=-7, topics=[], has_active_emergency=False,
+                safety_message="暂无紧急安全事件", created_at=now - timedelta(days=3),
+            ),
+            DailyInsight(
+                id="insight-demo-001-d4", elder_id="elder-demo-001", level="green", label="状态平稳",
+                headline="陈奶奶四天前状态平稳。", summary="仅供趋势联调的历史结构化摘要。",
+                score=82, baseline_delta=2, topics=[], has_active_emergency=False,
+                safety_message="暂无紧急安全事件", created_at=now - timedelta(days=4),
+            ),
+            DailyInsight(
+                id="insight-demo-001-d5", elder_id="elder-demo-001", level="green", label="状态平稳",
+                headline="陈奶奶五天前状态平稳。", summary="仅供趋势联调的历史结构化摘要。",
+                score=80, baseline_delta=0, topics=[], has_active_emergency=False,
+                safety_message="暂无紧急安全事件", created_at=now - timedelta(days=5),
+            ),
+            DailyInsight(
+                id="insight-demo-001-d6", elder_id="elder-demo-001", level="yellow", label="需要轻度关怀",
+                headline="陈奶奶六天前略有波动。", summary="仅供趋势联调的历史结构化摘要。",
+                score=74, baseline_delta=-4, topics=[], has_active_emergency=False,
+                safety_message="暂无紧急安全事件", created_at=now - timedelta(days=6),
+            ),
         ],
     )
     add_missing(
@@ -92,6 +130,23 @@ def seed_demo_data(db: Session) -> None:
                 title="日常状态平稳", summary="个人趋势接近基线，仅用于多账号联调，不表示疾病诊断。",
                 model_version="analysis-agent-demo-1", rule_version="risk-rules-demo-1",
                 sla_due_at=now + timedelta(hours=24), created_at=now, updated_at=now,
+            ),
+        ],
+    )
+    add_missing(
+        db,
+        [
+            FamilyCarePlanItem(
+                id="care-plan-demo-001", family_id="family-demo-001", elder_id="elder-demo-001",
+                title="发一条轻松的早安语音", scheduled_for=now,
+            ),
+            FamilyCarePlanItem(
+                id="care-plan-demo-002", family_id="family-demo-001", elder_id="elder-demo-001",
+                title="询问是否愿意在今晚视频聊天", scheduled_for=now + timedelta(hours=8),
+            ),
+            FamilyCarePlanItem(
+                id="care-plan-demo-003", family_id="family-demo-001", elder_id="elder-demo-001",
+                title="与家人协调周末探望", scheduled_for=now + timedelta(days=3),
             ),
         ],
     )

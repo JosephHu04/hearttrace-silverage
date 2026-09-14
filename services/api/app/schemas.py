@@ -338,6 +338,31 @@ class FamilyActionResult(ApiModel):
     duplicate: bool = False
 
 
+class FamilyTrendPointOut(ApiModel):
+    recorded_at: datetime
+    score: int
+    level: RiskLevel
+    label: str
+
+
+class FamilyTrendOut(ApiModel):
+    period_days: int
+    items: list[FamilyTrendPointOut]
+
+
+class FamilyCarePlanItemCreate(ApiModel):
+    title: str = Field(min_length=2, max_length=140)
+    scheduled_for: Optional[datetime] = None
+
+
+class FamilyCarePlanItemOut(ApiModel):
+    id: str
+    title: str
+    scheduled_for: Optional[datetime]
+    completed_at: Optional[datetime]
+    created_at: datetime
+
+
 class EmergencySource(str, Enum):
     elder_button = "elder_button"
     device_button = "device_button"

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from datetime import timedelta
+
+from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select
 
 from app.db.models import (
@@ -8,9 +10,11 @@ from app.db.models import (
     EmergencyEvent,
     ElderProfile,
     FamilyActionRecord,
+    FamilyCarePlanItem,
     FamilyElderGrant,
     RiskEvent,
     User,
+    utc_now,
 )
 from app.dependencies import DbSession, FamilyActor
 from app.schemas import (
@@ -18,12 +22,16 @@ from app.schemas import (
     FamilyActionRequest,
     FamilyActionHistoryOut,
     FamilyActionResult,
+    FamilyCarePlanItemCreate,
+    FamilyCarePlanItemOut,
     FamilyElderListOut,
     FamilyElderOut,
     FamilySafetyOut,
     FamilyStatusOut,
     FamilyTodayOut,
     FamilyTopicOut,
+    FamilyTrendOut,
+    FamilyTrendPointOut,
 )
 from app.services.audit import add_audit_log
 
@@ -137,6 +145,123 @@ def family_today(elder_id: str, db: DbSession, actor: FamilyActor) -> FamilyToda
         ),
         recent_actions=[FamilyActionHistoryOut(action=item.action, recorded_at=item.created_at) for item in recent_actions],
     )
+
+
+@router.get("/elders/{elder_id}/trend", response_model=FamilyTrendOut)
+def family_trend(
+    elder_id: str,
+    db: DbSession,
+    actor: FamilyActor,
+    days: int = Query(default=7, ge=1, le=30),
+) -> FamilyTrendOut:
+    """Return only approved, daily-level summaries; never conversation content."""
+    active_grant(db, actor.id, elder_id, "daily_summary")
+    cutoff = utc_now() - timedelta(days=days)
+    insights = list(
+        db.scalars(
+            select(DailyInsight)
+            .where(DailyInsight.elder_id == elder_id, DailyInsight.created_at >= cutoff)
+            .order_by(DailyInsight.created_at.asc())
+        )
+    )
+    add_audit_log(
+        db,
+        actor_id=actor.id,
+        action="family.trend_viewed",
+        target_type="elder",
+        target_id=elder_id,
+        metadata={"scope": "daily_summary", "days": days, "content": "daily_scores_only"},
+    )
+    db.commit()
+    return FamilyTrendOut(
+        period_days=days,
+        items=[
+            FamilyTrendPointOut(
+                recorded_at=item.created_at,
+                score=item.score,
+                level=item.level,
+                label=item.label,
+            )
+            for item in insights
+        ],
+    )
+
+
+@router.get("/elders/{elder_id}/care-plan", response_model=list[FamilyCarePlanItemOut])
+def list_care_plan(elder_id: str, db: DbSession, actor: FamilyActor) -> list[FamilyCarePlanItemOut]:
+    active_grant(db, actor.id, elder_id, "daily_summary")
+    items = list(
+        db.scalars(
+            select(FamilyCarePlanItem)
+            .where(FamilyCarePlanItem.family_id == actor.id, FamilyCarePlanItem.elder_id == elder_id)
+            .order_by(FamilyCarePlanItem.completed_at.is_not(None), FamilyCarePlanItem.scheduled_for, FamilyCarePlanItem.created_at)
+        )
+    )
+    add_audit_log(
+        db,
+        actor_id=actor.id,
+        action="family.care_plan_viewed",
+        target_type="elder",
+        target_id=elder_id,
+        metadata={"scope": "daily_summary", "content": "own_plan_only"},
+    )
+    db.commit()
+    return [FamilyCarePlanItemOut.model_validate(item) for item in items]
+
+
+@router.post("/elders/{elder_id}/care-plan", response_model=FamilyCarePlanItemOut, status_code=status.HTTP_201_CREATED)
+def create_care_plan_item(
+    elder_id: str,
+    body: FamilyCarePlanItemCreate,
+    db: DbSession,
+    actor: FamilyActor,
+) -> FamilyCarePlanItemOut:
+    active_grant(db, actor.id, elder_id, "care_actions")
+    item = FamilyCarePlanItem(
+        family_id=actor.id,
+        elder_id=elder_id,
+        title=body.title.strip(),
+        scheduled_for=body.scheduled_for,
+    )
+    db.add(item)
+    db.flush()
+    add_audit_log(
+        db,
+        actor_id=actor.id,
+        action="family.care_plan_created",
+        target_type="family_care_plan_item",
+        target_id=item.id,
+        metadata={"elderId": elder_id},
+    )
+    db.commit()
+    db.refresh(item)
+    return FamilyCarePlanItemOut.model_validate(item)
+
+
+@router.post("/elders/{elder_id}/care-plan/{item_id}/complete", response_model=FamilyCarePlanItemOut)
+def complete_care_plan_item(
+    elder_id: str,
+    item_id: str,
+    db: DbSession,
+    actor: FamilyActor,
+) -> FamilyCarePlanItemOut:
+    active_grant(db, actor.id, elder_id, "care_actions")
+    item = db.get(FamilyCarePlanItem, item_id)
+    if item is None or item.family_id != actor.id or item.elder_id != elder_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="关怀计划不存在")
+    if item.completed_at is None:
+        item.completed_at = utc_now()
+        add_audit_log(
+            db,
+            actor_id=actor.id,
+            action="family.care_plan_completed",
+            target_type="family_care_plan_item",
+            target_id=item.id,
+            metadata={"elderId": elder_id},
+        )
+        db.commit()
+        db.refresh(item)
+    return FamilyCarePlanItemOut.model_validate(item)
 
 
 @router.post("/risk-events/{event_id}/actions", response_model=FamilyActionResult)
