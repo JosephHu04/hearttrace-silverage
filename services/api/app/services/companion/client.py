@@ -6,7 +6,7 @@ from typing import Any
 from openai import OpenAI
 
 from app.core.config import Settings
-from app.services.companion.prompt import ElderContext, build_elder_prompt
+from app.services.companion.prompt import ElderContext, build_elder_prompt, build_turn_guard
 
 
 class CompanionClient:
@@ -43,17 +43,23 @@ class CompanionClient:
     ) -> dict[str, Any]:
         if self._client is None:
             raise RuntimeError("陪伴模型尚未配置。")
+        bounded = self.bounded_history(
+            history,
+            character_budget=max(800, self.settings.companion_history_character_budget),
+        )
+        messages = [{"role": "system", "content": build_elder_prompt(context)}]
+        if bounded:
+            messages.extend(bounded[:-1])
+            messages.append({"role": "system", "content": build_turn_guard(context)})
+            messages.append(bounded[-1])
         return {
             "model": self.settings.dashscope_companion_model,
-            "messages": [
-                {"role": "system", "content": build_elder_prompt(context)},
-                *self.bounded_history(history),
-            ],
-            "temperature": 0.42,
-            "top_p": 0.82,
-            "max_tokens": 220,
+            "messages": messages,
+            "temperature": 0.3,
+            "top_p": 0.8,
+            "max_tokens": max(80, self.settings.companion_max_tokens),
             "frequency_penalty": 0.18,
-            "extra_body": {"enable_thinking": False},
+            "extra_body": {"enable_thinking": False, "preserve_thinking": False},
         }
 
     def stream_reply(
