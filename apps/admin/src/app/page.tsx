@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { changeFamilyGrant, demoLogin, getAuditLogs, getElderAccounts, getEmergencyQueue, getFamilyGrants, getRegistrationApplications, getRiskDetail, getRiskQueue, performEmergencyAction, performRiskAction, reviewRegistrationApplication } from "@/lib/admin-api";
-import type { Actor, AuditFilters, AuditListResponse, AuthorizationScope, ElderAccount, EmergencyAction, EmergencyEvent, EmergencyStatus, FamilyGrant, GrantAction, RegistrationApplication, RiskAction, RiskDetail, RiskListItem, RiskStatus } from "@/lib/types";
+import { changeFamilyGrant, demoLogin, getAuditLogs, getElderAccounts, getEmergencyQueue, getFamilyGrants, getNotifications, getRegistrationApplications, getRiskDetail, getRiskQueue, markNotificationRead, performEmergencyAction, performRiskAction, reviewRegistrationApplication } from "@/lib/admin-api";
+import type { Actor, AuditFilters, AuditListResponse, AuthorizationScope, ElderAccount, EmergencyAction, EmergencyEvent, EmergencyStatus, FamilyGrant, GrantAction, NotificationCategory, NotificationItem, NotificationListResponse, RegistrationApplication, RiskAction, RiskDetail, RiskListItem, RiskStatus } from "@/lib/types";
 
-type AdminView = "risk" | "emergency" | "relationships" | "audit" | "registrations";
+type AdminView = "risk" | "emergency" | "relationships" | "notifications" | "audit" | "registrations";
 
 const emptyAuditFilters: AuditFilters = { actorId: "", action: "", targetType: "", targetId: "", page: 1, perPage: 25 };
 
@@ -97,6 +97,25 @@ const nextActions: Record<RiskStatus, RiskAction[]> = {
 
 const noteRequired = new Set<RiskAction>(["request_action", "escalate", "resolve", "mark_false_positive", "reopen"]);
 
+const notificationCategoryLabels: Record<NotificationCategory, string> = {
+  emergency: "安全事件",
+  risk_follow_up: "风险跟进",
+  registration: "注册审核",
+  authorization: "授权变更",
+  analysis_summary: "关怀摘要"
+};
+
+const actionableNotificationTargets = new Set(["risk_event", "emergency_event", "registration_application", "family_elder_grant"]);
+
+const viewHeadings: Record<AdminView, { eyebrow: string; title: string }> = {
+  risk: { eyebrow: "风险复核 / 今日工作", title: "先处理需要人工判断的事项" },
+  emergency: { eyebrow: "安全事件 / 紧急求助", title: "确认每一条求助都得到人工响应" },
+  relationships: { eyebrow: "关系管理 / 授权范围", title: "让每一次访问都有明确授权依据" },
+  notifications: { eyebrow: "通知中心 / 个人待办", title: "从业务提醒直接进入处置闭环" },
+  audit: { eyebrow: "审计查询 / 操作留痕", title: "核对每一次敏感读取与人工操作" },
+  registrations: { eyebrow: "账号管理 / 关系核验", title: "审核家属账户申请" }
+};
+
 function formatTime(value: string | null) {
   if (!value) return "未设置";
   return new Intl.DateTimeFormat("zh-CN", {
@@ -135,6 +154,10 @@ export default function AdminDashboard() {
   const [grantDrafts, setGrantDrafts] = useState<Record<string, AuthorizationScope[]>>({});
   const [grantNotes, setGrantNotes] = useState<Record<string, string>>({});
   const [grantBusy, setGrantBusy] = useState<string | null>(null);
+  const [notifications, setNotifications] = useState<NotificationListResponse>({ items: [], unreadCount: 0, page: 1, perPage: 25, total: 0 });
+  const [notificationUnreadOnly, setNotificationUnreadOnly] = useState(false);
+  const [notificationLoading, setNotificationLoading] = useState(false);
+  const [notificationBusy, setNotificationBusy] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -161,6 +184,9 @@ export default function AdminDashboard() {
         if (!active) return;
         setGrants(grantQueue.items);
         setGrantDrafts(Object.fromEntries(grantQueue.items.map((grant) => [`${grant.familyId}:${grant.elderId}`, grant.scopes])));
+        const notificationQueue = await getNotifications(login.accessToken);
+        if (!active) return;
+        setNotifications(notificationQueue);
         if (queue.items[0]) {
           const detail = await getRiskDetail(login.accessToken, queue.items[0].id);
           if (!active) return;
@@ -240,6 +266,74 @@ export default function AdminDashboard() {
     }
   };
 
+  const loadNotifications = async (page = 1, unreadOnly = notificationUnreadOnly) => {
+    if (!token) return;
+    setNotificationLoading(true);
+    setError("");
+    try {
+      setNotifications(await getNotifications(token, unreadOnly, page));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "读取通知失败");
+    } finally {
+      setNotificationLoading(false);
+    }
+  };
+
+  const recordNotificationRead = async (item: NotificationItem) => {
+    if (!token || item.isRead) return;
+    setNotificationBusy(item.id);
+    setError("");
+    try {
+      await markNotificationRead(token, item.id);
+      await loadNotifications(notifications.page, notificationUnreadOnly);
+      setNotice("通知已标记为已读，操作已写入审计日志");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "更新通知状态失败");
+    } finally {
+      setNotificationBusy(null);
+    }
+  };
+
+  const openNotificationTarget = async (item: NotificationItem) => {
+    if (!token) return;
+    if (!item.isRead) await recordNotificationRead(item);
+    setError("");
+    try {
+      if (item.targetType === "risk_event") {
+        const [queue, detail] = await Promise.all([getRiskQueue(token), getRiskDetail(token, item.targetId)]);
+        setRisks(queue.items);
+        setSelected(detail);
+        setActiveView("risk");
+        setNotice("已从通知定位到风险事件");
+        return;
+      }
+      if (item.targetType === "emergency_event") {
+        const queue = await getEmergencyQueue(token);
+        setEmergencies(queue.items);
+        setSelectedEmergency(queue.items.find((event) => event.id === item.targetId) ?? null);
+        setActiveView("emergency");
+        setNotice(queue.items.some((event) => event.id === item.targetId) ? "已从通知定位到安全事件" : "该安全事件已不在当前队列中");
+        return;
+      }
+      if (item.targetType === "registration_application") {
+        const queue = await getRegistrationApplications(token);
+        setApplications(queue.items);
+        setActiveView("registrations");
+        setNotice("已打开注册审核队列");
+        return;
+      }
+      if (item.targetType === "family_elder_grant") {
+        await loadGrants();
+        setActiveView("relationships");
+        setNotice("已打开关系与授权台账");
+        return;
+      }
+      setNotice("该通知已读；当前管理端没有对应详情页面");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "打开相关事项失败");
+    }
+  };
+
   const openView = (view: AdminView) => {
     setActiveView(view);
     setError("");
@@ -254,9 +348,11 @@ export default function AdminDashboard() {
       }).catch(() => setError("读取紧急事件失败"));
     }
     if (view === "relationships") void loadGrants();
+    if (view === "notifications") void loadNotifications(1, notificationUnreadOnly);
   };
 
   const auditPageCount = Math.max(1, Math.ceil(audits.total / audits.perPage));
+  const notificationPageCount = Math.max(1, Math.ceil(notifications.total / notifications.perPage));
 
   const reviewApplication = async (application: RegistrationApplication, decision: "approved" | "rejected") => {
     if (!token) return;
@@ -350,8 +446,9 @@ export default function AdminDashboard() {
           <button className={`nav-item ${activeView === "registrations" ? "active" : ""}`} onClick={() => openView("registrations")}><span>02</span>注册审核{applications.length > 0 && <em>{applications.length} 待办</em>}</button>
           <button className={`nav-item ${activeView === "emergency" ? "active" : ""}`} onClick={() => openView("emergency")}><span>03</span>安全事件{emergencies.filter((item) => ["open", "acknowledged"].includes(item.status)).length > 0 && <em>{emergencies.filter((item) => ["open", "acknowledged"].includes(item.status)).length} 待办</em>}</button>
           <button className={`nav-item ${activeView === "relationships" ? "active" : ""}`} onClick={() => openView("relationships")}><span>04</span>关系与授权<em>{grants.filter((grant) => grant.isActive).length} 生效</em></button>
-          <button className="nav-item" disabled><span>05</span>设备管理<em>待接入</em></button>
-          <button className={`nav-item ${activeView === "audit" ? "active" : ""}`} onClick={() => openView("audit")}><span>06</span>审计查询</button>
+          <button className={`nav-item ${activeView === "notifications" ? "active" : ""}`} onClick={() => openView("notifications")}><span>05</span>通知中心{notifications.unreadCount > 0 && <em>{notifications.unreadCount} 未读</em>}</button>
+          <button className="nav-item" disabled><span>06</span>设备管理<em>待接入</em></button>
+          <button className={`nav-item ${activeView === "audit" ? "active" : ""}`} onClick={() => openView("audit")}><span>07</span>审计查询</button>
         </nav>
         <div className="sidebar-note">
           <span className="connection-dot" />
@@ -362,7 +459,7 @@ export default function AdminDashboard() {
 
       <section className="workspace">
         <header className="topbar">
-          <div><p>{activeView === "risk" ? "风险复核 / 今日工作" : activeView === "emergency" ? "安全事件 / 紧急求助" : activeView === "relationships" ? "关系管理 / 授权范围" : activeView === "audit" ? "审计查询 / 操作留痕" : "账号管理 / 关系核验"}</p><h1>{activeView === "risk" ? "先处理需要人工判断的事项" : activeView === "emergency" ? "确认每一条求助都得到人工响应" : activeView === "relationships" ? "让每一次访问都有明确授权依据" : activeView === "audit" ? "核对每一次敏感读取与人工操作" : "审核家属账户申请"}</h1></div>
+          <div><p>{viewHeadings[activeView].eyebrow}</p><h1>{viewHeadings[activeView].title}</h1></div>
           <div className="actor"><span>{actor?.displayName?.slice(0, 1) ?? "管"}</span><div><strong>{actor?.displayName ?? "正在登录"}</strong><small>{actor?.role ?? "—"}</small></div></div>
         </header>
 
@@ -510,6 +607,48 @@ export default function AdminDashboard() {
                   <div className="grant-actions"><input value={grantNotes[key] ?? ""} onChange={(event) => setGrantNotes((current) => ({ ...current, [key]: event.target.value }))} placeholder={grant.isActive ? "撤销授权时填写原因" : "重新启用时填写核验说明"} /><button className="secondary" disabled={!grant.isActive || grantBusy === key || JSON.stringify([...draft].sort()) === JSON.stringify([...grant.scopes].sort())} onClick={() => { void runGrantAction(grant, "update_scopes"); }}>保存范围</button><button className={grant.isActive ? "danger-button" : "primary"} disabled={grantBusy === key} onClick={() => { void runGrantAction(grant, grant.isActive ? "revoke" : "reactivate"); }}>{grantBusy === key ? "提交中…" : grant.isActive ? "撤销授权" : "重新启用"}</button></div>
                 </article>;
               })}
+            </div>
+          </section>
+        ) : activeView === "notifications" ? (
+          <section className="notification-console panel">
+            <div className="notification-toolbar">
+              <div>
+                <p>个人消息箱</p>
+                <h2>业务通知</h2>
+                <small>仅展示当前账号的通知；接收人和可见范围由后端授权决定。</small>
+              </div>
+              <div className="notification-controls" aria-label="通知筛选">
+                <button className={!notificationUnreadOnly ? "active" : ""} onClick={() => { setNotificationUnreadOnly(false); void loadNotifications(1, false); }}>全部</button>
+                <button className={notificationUnreadOnly ? "active" : ""} onClick={() => { setNotificationUnreadOnly(true); void loadNotifications(1, true); }}>仅未读</button>
+                <button className="secondary" disabled={notificationLoading} onClick={() => void loadNotifications(notifications.page, notificationUnreadOnly)}>{notificationLoading ? "刷新中…" : "刷新"}</button>
+              </div>
+            </div>
+            <div className="notification-summary">
+              <span><strong>{notifications.unreadCount}</strong> 未读</span>
+              <span><strong>{notifications.total}</strong> {notificationUnreadOnly ? "条未读结果" : "条通知"}</span>
+              <small>第 {notifications.page}/{notificationPageCount} 页</small>
+            </div>
+            <div className="notification-list" aria-live="polite">
+              {notificationLoading && <div className="empty">正在读取通知…</div>}
+              {!notificationLoading && notifications.items.length === 0 && <div className="empty">{notificationUnreadOnly ? "当前没有未读通知" : "当前没有业务通知"}</div>}
+              {!notificationLoading && notifications.items.map((item) => (
+                <article className={`notification-item ${item.isRead ? "read" : "unread"}`} key={item.id}>
+                  <span className={`notification-category ${item.category}`}>{notificationCategoryLabels[item.category]}</span>
+                  <div className="notification-copy">
+                    <div><h3>{item.title}</h3>{!item.isRead && <b>未读</b>}</div>
+                    <p>{item.body}</p>
+                    <small>{formatTime(item.createdAt)} · {item.targetType} · {item.targetId}</small>
+                  </div>
+                  <div className="notification-actions">
+                    {!item.isRead && <button className="secondary" disabled={notificationBusy === item.id} onClick={() => void recordNotificationRead(item)}>{notificationBusy === item.id ? "处理中…" : "标为已读"}</button>}
+                    {actionableNotificationTargets.has(item.targetType) && <button className="primary" disabled={notificationBusy === item.id} onClick={() => void openNotificationTarget(item)}>查看相关事项</button>}
+                  </div>
+                </article>
+              ))}
+            </div>
+            <div className="audit-pagination">
+              <button className="secondary" disabled={notificationLoading || notifications.page <= 1} onClick={() => void loadNotifications(notifications.page - 1, notificationUnreadOnly)}>上一页</button>
+              <button className="secondary" disabled={notificationLoading || notifications.page >= notificationPageCount} onClick={() => void loadNotifications(notifications.page + 1, notificationUnreadOnly)}>下一页</button>
             </div>
           </section>
         ) : activeView === "audit" ? (

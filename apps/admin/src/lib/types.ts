@@ -193,3 +193,35 @@ export type EmergencyActionResponse = {
   };
   duplicate: boolean;
 };
+
+export type NotificationCategory =
+  | "emergency"
+  | "risk_follow_up"
+  | "registration"
+  | "authorization"
+  | "analysis_summary";
+
+export type NotificationItem = {
+  id: string;
+  category: NotificationCategory;
+  title: string;
+  body: string;
+  targetType: string;
+  targetId: string;
+  isRead: boolean;
+  readAt: string | null;
+  createdAt: string;
+};
+
+export type NotificationListResponse = {
+  items: NotificationItem[];
+  unreadCount: number;
+  page: number;
+  perPage: number;
+  total: number;
+};
+
+export type NotificationReadResponse = {
+  notification: NotificationItem;
+  duplicate: boolean;
+};
