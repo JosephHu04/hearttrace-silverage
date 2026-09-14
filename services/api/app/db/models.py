@@ -275,8 +275,8 @@ class FamilyCarePlanItem(Base):
     )
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=uuid_string)
-    family_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
-    elder_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    family_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    elder_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
     title: Mapped[str] = mapped_column(String(140))
     scheduled_for: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
