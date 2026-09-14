@@ -21,6 +21,7 @@ from app.schemas import (
     RegistrationStatus,
 )
 from app.services.audit import add_audit_log
+from app.services.notifications import create_notification
 
 
 router = APIRouter(prefix="/admin", tags=["admin-account-approval"])
@@ -114,6 +115,16 @@ def review_registration_application(
             target_type="family_elder_grant",
             target_id=f"{family.id}:{elder.id}",
             metadata={"familyId": family.id, "elderId": elder.id, "scopes": scopes, "consentVersion": application.consent_version},
+        )
+        create_notification(
+            db,
+            recipient_id=family.id,
+            category="registration",
+            title="家属账号已通过审核",
+            body=f"账号已通过审核，并已获得查看{elder.display_name}授权摘要的权限。",
+            target_type="registration_application",
+            target_id=application.id,
+            event_key="approved",
         )
 
     application.status = body.decision.value
@@ -239,6 +250,22 @@ def change_family_grant(
         target_type="family_elder_grant",
         target_id=f"{family_id}:{elder_id}",
         metadata={"familyId": family_id, "elderId": elder_id, "scopes": values.get("scopes", grant.scopes), "note": note or None, "version": grant.version + 1},
+    )
+    elder_name = db.scalar(select(User.display_name).where(User.id == elder_id)) or "老人"
+    notification_messages = {
+        GrantActionType.update_scopes: f"你对{elder_name}的授权范围已更新。",
+        GrantActionType.revoke: f"你对{elder_name}的访问授权已撤销。",
+        GrantActionType.reactivate: f"你对{elder_name}的访问授权已重新启用。",
+    }
+    create_notification(
+        db,
+        recipient_id=family_id,
+        category="authorization",
+        title="家属授权状态更新",
+        body=notification_messages[body.action],
+        target_type="family_elder_grant",
+        target_id=elder_id,
+        event_key=f"{body.action.value}:v{grant.version + 1}",
     )
     db.commit()
     db.refresh(grant)

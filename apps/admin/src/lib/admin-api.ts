@@ -1,4 +1,4 @@
-import type { AuditFilters, AuditListResponse, AuthorizationScope, ElderAccountList, EmergencyAction, EmergencyActionResponse, EmergencyListResponse, FamilyGrant, FamilyGrantList, GrantAction, LoginResult, RegistrationApplication, RegistrationApplicationList, RiskAction, RiskActionResponse, RiskDetail, RiskListResponse } from "./types";
+import type { AuditFilters, AuditListResponse, AuthorizationScope, ElderAccountList, EmergencyAction, EmergencyActionResponse, EmergencyListResponse, FamilyGrant, FamilyGrantList, GrantAction, LoginResult, NotificationListResponse, NotificationReadResponse, RegistrationApplication, RegistrationApplicationList, RiskAction, RiskActionResponse, RiskDetail, RiskListResponse } from "./types";
 
 const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
@@ -121,5 +121,23 @@ export function performEmergencyAction(
       expectedVersion,
       note: note?.trim() || null
     })
+  });
+}
+
+export function getNotifications(token: string, unreadOnly = false, page = 1) {
+  const query = new URLSearchParams({
+    unreadOnly: String(unreadOnly),
+    page: String(page),
+    perPage: "25"
+  });
+  return request<NotificationListResponse>(`/api/notifications/me?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
+export function markNotificationRead(token: string, notificationId: string) {
+  return request<NotificationReadResponse>(`/api/notifications/${notificationId}/read`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` }
   });
 }

@@ -143,6 +143,27 @@ class ConversationAnalysis(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class NotificationRecord(Base):
+    __tablename__ = "notification_records"
+    __table_args__ = (
+        Index("ix_notification_records_recipient_time", "recipient_id", "created_at"),
+        Index("ix_notification_records_recipient_unread", "recipient_id", "is_read", "created_at"),
+        Index("uq_notification_records_dedupe_key", "dedupe_key", unique=True),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=uuid_string)
+    recipient_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    category: Mapped[str] = mapped_column(String(40), index=True)
+    title: Mapped[str] = mapped_column(String(120))
+    body: Mapped[str] = mapped_column(String(500))
+    target_type: Mapped[str] = mapped_column(String(40))
+    target_id: Mapped[str] = mapped_column(String(64))
+    dedupe_key: Mapped[str] = mapped_column(String(80))
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False)
+    read_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class FamilyElderGrant(Base):
     __tablename__ = "family_elder_grants"
 

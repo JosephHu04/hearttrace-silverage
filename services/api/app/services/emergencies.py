@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.db.models import EmergencyAction, EmergencyEvent, User, utc_now
 from app.schemas import EmergencyActionRequest
 from app.services.audit import add_audit_log
+from app.services.notifications import notify_families
 
 
 class EmergencyNotFoundError(Exception):
@@ -139,6 +140,24 @@ def apply_emergency_action(
         target_type="emergency_event",
         target_id=event.id,
         metadata={"fromStatus": previous_status, "toStatus": next_status, "eventVersion": next_version},
+    )
+    name = elder_name(db, event.elder_id)
+    family_messages = {
+        "acknowledge": f"工作人员已确认收到{name}的紧急求助，正在持续跟进。",
+        "resolve": f"工作人员已确认{name}当前安全，紧急事件已解除。",
+        "cancel": f"{name}的紧急事件已由工作人员取消。",
+        "reopen": f"{name}的紧急事件已重新打开，请继续关注。",
+    }
+    notify_families(
+        db,
+        elder_id=event.elder_id,
+        required_scope="daily_summary",
+        category="emergency",
+        title="紧急事件状态更新",
+        body=family_messages[action_name],
+        target_type="emergency_event",
+        target_id=event.id,
+        event_key=f"{action_name}:v{next_version}",
     )
     db.commit()
     db.refresh(action)

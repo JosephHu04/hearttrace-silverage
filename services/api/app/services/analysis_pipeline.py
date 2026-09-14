@@ -21,6 +21,7 @@ from app.db.models import (
     uuid_string,
 )
 from app.services.audit import add_audit_log
+from app.services.notifications import notify_families, notify_staff
 
 
 ANALYSIS_EVENT_TYPE = "conversation.analysis.requested"
@@ -250,6 +251,15 @@ def _attach_review_event(
             )
         )
         existing.updated_at = utc_now()
+        notify_staff(
+            db,
+            category="risk_follow_up",
+            title="风险事件新增候选证据",
+            body="授权会话产生了新的结构化候选信号，请在复核时一并查看。",
+            target_type="risk_event",
+            target_id=existing.id,
+            event_key=f"analysis:{analysis_record.id}",
+        )
         return existing
 
     now = utc_now()
@@ -278,6 +288,16 @@ def _attach_review_event(
             detail=detail,
             evidence_ref=f"analysis:{analysis_record.id}",
         )
+    )
+    elder_name = db.scalar(select(User.display_name).where(User.id == session.elder_id)) or "老人"
+    notify_staff(
+        db,
+        category="risk_follow_up",
+        title="新的关怀分析待复核",
+        body=f"{elder_name}的授权会话产生了结构化候选信号，请结合趋势和量表人工复核。",
+        target_type="risk_event",
+        target_id=event.id,
+        event_key="created",
     )
     return event
 
@@ -478,5 +498,17 @@ def publish_confirmed_analysis_summary(
             "audience": "authorized_family",
             "contentExposure": "structured_only",
         },
+    )
+    elder_name = db.scalar(select(User.display_name).where(User.id == risk_event.elder_id)) or "老人"
+    notify_families(
+        db,
+        elder_id=risk_event.elder_id,
+        required_scope="daily_summary",
+        category="analysis_summary",
+        title="新的关怀摘要",
+        body=f"{elder_name}有一条经工作人员确认的关怀摘要，请查看今日状态。",
+        target_type="daily_insight",
+        target_id=insight.id,
+        event_key=f"analysis:{analysis.id}",
     )
     return insight
