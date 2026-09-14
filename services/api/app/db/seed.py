@@ -40,6 +40,17 @@ def seed_demo_data(db: Session) -> None:
         ],
     )
     db.flush()
+    for actor_id, identifier, password in [
+        ("family-demo-001", "lin.demo@hearttrace.local", "FamilyDemo2026!"),
+        ("family-demo-002", "wang.demo@hearttrace.local", "FamilyDemo2026!"),
+        ("family-no-access-001", "noaccess.demo@hearttrace.local", "NoAccessDemo2026!"),
+    ]:
+        actor = db.get(User, actor_id)
+        if actor is not None:
+            if actor.login_identifier is None:
+                actor.login_identifier = identifier
+            if actor.password_hash is None:
+                actor.password_hash = hash_password(password)
     add_missing(
         db,
         [
