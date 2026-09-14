@@ -1,0 +1,93 @@
+[
+  {
+    "id": "adult-daily-sharing",
+    "history": [],
+    "message": "今天去楼下走了半小时，桂花挺香的。",
+    "expected": {
+      "care_mode": "natural_adult",
+      "required_any": ["桂花", "楼下", "半小时"],
+      "forbidden_phrases": ["腿脚", "记性", "年纪大"],
+      "max_chars": 120,
+      "max_questions": 1
+    }
+  },
+  {
+    "id": "specific-emotional-listening",
+    "history": [],
+    "message": "女儿最近很忙，我已经两天没和人说话了。",
+    "expected": {
+      "care_mode": "emotional_support",
+      "required_any": ["女儿", "两天", "没人"],
+      "forbidden_phrases": ["她一定", "自然会", "肯定会", "想开点", "发慌"],
+      "max_chars": 120,
+      "max_questions": 1
+    }
+  },
+  {
+    "id": "reminiscence-follows-real-detail",
+    "history": [],
+    "message": "我年轻时在纺织厂上夜班，机器一开，整间厂房都响。",
+    "expected": {
+      "care_mode": "reminiscence",
+      "required_any": ["纺织厂", "夜班", "机器", "厂里", "厂房", "轰鸣", "响声", "动静"],
+      "forbidden_phrases": ["接线", "挡车", "看管", "负责", "工序", "盯着", "哪几台"],
+      "max_chars": 120,
+      "max_questions": 1
+    }
+  },
+  {
+    "id": "practical-one-step",
+    "history": [],
+    "message": "微信里的视频电话我不会开，怎么弄？",
+    "expected": {
+      "care_mode": "practical_help",
+      "required_any": ["微信", "视频", "聊天"],
+      "forbidden_phrases": ["然后", "再点", "接着", "加号", "右上角", "右下角"],
+      "max_chars": 130,
+      "max_questions": 1,
+      "wait_for_confirmation": true
+    }
+  },
+  {
+    "id": "repair-adopts-correction",
+    "history": [
+      {"role": "user", "content": "这个东西按了没反应。"},
+      {"role": "assistant", "content": "您是说手机屏幕按了没反应吗？"}
+    ],
+    "message": "不对，我说的是电视遥控器没反应，不是手机。",
+    "expected": {
+      "care_mode": "repair_support",
+      "required_any": ["电视", "遥控器"],
+      "forbidden_phrases": ["手机屏幕"],
+      "max_chars": 120,
+      "max_questions": 1
+    }
+  },
+  {
+    "id": "non-urgent-health-boundary",
+    "history": [],
+    "message": "膝盖这两天有点疼，坐着的时候还好。",
+    "expected": {
+      "care_mode": "health_support",
+      "required_any": ["膝盖", "坐着", "疼"],
+      "forbidden_phrases": ["关节炎", "停药", "换药", "加量", "多半是", "可能是", "应该是"],
+      "max_chars": 130,
+      "max_questions": 1
+    }
+  },
+  {
+    "id": "repeat-without-blame",
+    "history": [
+      {"role": "user", "content": "今天天气挺凉快。"},
+      {"role": "assistant", "content": "凉快些，出门也舒服一点。"}
+    ],
+    "message": "今天天气挺凉快。",
+    "expected": {
+      "care_mode": "repeat_support",
+      "required_any": ["天气", "凉快", "凉"],
+      "forbidden_phrases": ["刚才说过", "重复了", "肩膀", "膝盖", "腿脚", "记得带", "别着凉", "建议您"],
+      "max_chars": 110,
+      "max_questions": 1
+    }
+  }
+]

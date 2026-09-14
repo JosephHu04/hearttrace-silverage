@@ -1,8 +1,10 @@
 from fastapi.testclient import TestClient
 
+from companion_evaluate import assess_reply, load_cases
 from app.services.companion.client import CompanionClient
 from app.services.companion.live_info import build_live_info_result
 from app.services.companion.policy import plan_care_turn
+from app.services.companion.prompt import build_elder_prompt
 from app.core.config import get_settings
 
 
@@ -141,8 +143,98 @@ def test_flash_request_is_short_non_thinking_generation() -> None:
     )
 
     assert request["model"] == "qwen3.8-flash"
-    assert request["extra_body"] == {"enable_thinking": False}
-    assert request["max_tokens"] == 220
+    assert request["extra_body"] == {
+        "enable_thinking": False,
+        "preserve_thinking": False,
+    }
+    assert request["max_tokens"] == 160
+    assert request["temperature"] == 0.3
+    assert request["messages"][-2]["role"] == "system"
+    assert "本轮硬性要求" in request["messages"][-2]["content"]
+    assert request["messages"][-1] == {"role": "user", "content": "我想孙子了"}
+
+
+def test_prompt_has_spoken_response_and_repair_contract() -> None:
+    plan = plan_care_turn(
+        "不对，我说的是电视遥控器没反应，不是手机",
+        turn_count=2,
+        recent_user_messages=["手机打不开"],
+        recent_openings=["您可以先看看手机。"],
+    )
+
+    prompt = build_elder_prompt(plan.context)
+
+    assert plan.care_mode == "repair_support"
+    assert "35 至 90 个汉字" in prompt
+    assert "最多只能出现一个问号" in prompt
+    assert "最多两个具体选项" in prompt
+    assert "不要再次复述错误理解" in prompt
+    assert "输出前静默自检" in prompt
+
+
+def test_policy_detects_social_and_reminiscence_phrasing() -> None:
+    emotional = plan_care_turn(
+        "女儿最近很忙，我已经两天没和人说话了",
+        turn_count=0,
+        recent_user_messages=[],
+        recent_openings=[],
+    )
+    reminiscence = plan_care_turn(
+        "我年轻时在纺织厂上夜班",
+        turn_count=0,
+        recent_user_messages=[],
+        recent_openings=[],
+    )
+
+    assert emotional.care_mode == "emotional_support"
+    assert reminiscence.care_mode == "reminiscence"
+
+
+def test_practical_help_asks_for_current_screen_first() -> None:
+    plan = plan_care_turn(
+        "微信里的视频电话我不会开，怎么弄？",
+        turn_count=0,
+        recent_user_messages=[],
+        recent_openings=[],
+    )
+
+    prompt = build_elder_prompt(plan.context)
+
+    assert plan.care_mode == "practical_help"
+    assert "用户没有说明当前屏幕" in prompt
+    assert "不给任何操作步骤" in prompt
+
+
+def test_history_budget_keeps_latest_complete_turns() -> None:
+    history = [
+        {"role": "user", "content": "早" * 60},
+        {"role": "assistant", "content": "您好" * 20},
+        {"role": "user", "content": "晚" * 20},
+    ]
+
+    selected = CompanionClient.bounded_history(history, character_budget=60)
+
+    assert selected == history[-2:]
+
+
+def test_companion_evaluation_corpus_and_quality_checks() -> None:
+    cases = load_cases()
+    repair_case = next(item for item in cases if item["id"] == "repair-adopts-correction")
+
+    passing = assess_reply(
+        repair_case,
+        "repair_support",
+        "抱歉，听明白了，是电视遥控器没反应。可以先看看前端的小灯按键时会不会亮？",
+    )
+    failing = assess_reply(
+        repair_case,
+        "natural_adult",
+        "老人家，手机屏幕是哪里不对？是不是坏了？",
+    )
+
+    assert len(cases) == 7
+    assert all(passing.values())
+    assert not all(failing.values())
 
 
 def test_beijing_time_does_not_depend_on_system_tzdata() -> None:

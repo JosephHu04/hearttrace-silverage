@@ -20,10 +20,19 @@ _CURRENT_AGAIN = ("现在又", "这会儿又", "刚刚又", "又开始")
 _THIRD_PARTY = ("我妈", "我爸", "我老伴", "我爱人", "我丈夫", "我妻子", "我儿子", "我女儿", "他", "她")
 _PRACTICAL_OBJECTS = ("手机", "微信", "视频", "电话", "电视", "遥控器", "挂号", "缴费", "付款", "二维码", "密码", "软件", "app", "按钮", "屏幕", "登录", "网络")
 _PRACTICAL_CUES = ("怎么", "如何", "不会", "点哪里", "打不开", "弄不了", "帮我")
+_SCREEN_STATE_CUES = ("已经打开", "我打开了", "现在在", "屏幕上", "我看到", "显示着", "页面上")
 _HEALTH_TERMS = ("疼", "痛", "难受", "头晕", "恶心", "咳嗽", "发烧", "血压", "血糖", "睡不着", "失眠", "胸闷", "呼吸", "药", "医生", "医院")
-_EMOTIONAL_TERMS = ("孤单", "孤独", "寂寞", "难过", "伤心", "害怕", "担心", "累赘", "没用", "没人管", "被忘了", "想孙子", "想女儿", "想儿子", "想老伴")
-_REMINISCENCE_TERMS = ("我以前", "年轻那会", "年轻时候", "当年", "小时候", "从前", "老家")
+_EMOTIONAL_TERMS = (
+    "孤单", "孤独", "寂寞", "难过", "伤心", "害怕", "担心", "累赘", "没用",
+    "没人管", "没和人说话", "没人说话", "没有人说话", "屋里太安静", "被忘了",
+    "想孙子", "想女儿", "想儿子", "想老伴",
+)
+_REMINISCENCE_TERMS = ("我以前", "年轻那会", "年轻时", "当年", "小时候", "从前", "老家")
 _COGNITIVE_PHRASES = ("我要回家", "这不是我家", "有人偷了我的", "有人要害我", "我要找妈妈", "我要找爸爸")
+_REPAIR_PHRASES = (
+    "你听错了", "您听错了", "没听清", "没听懂", "不是这个意思", "我不是说",
+    "我说的是", "不对，我", "不对，您",
+)
 _MEMORY_PATTERNS = (
     re.compile(r"(?:请|你要|帮我)?记住[：,:，\s]*([^。！？\n]{2,100})"),
     re.compile(r"别忘了[：,:，\s]*([^。！？\n]{2,100})"),
@@ -121,12 +130,22 @@ def plan_care_turn(
         signals.append("先陪用户停留在想念里，再问一个真实片段；不能猜孙子的称呼或动作。")
     if "膝盖" in compact and any(item in compact for item in ("疼", "痛")):
         signals.append("只承接膝盖疼，不断言已经影响走路；最多问一个会改变建议的细节。")
+    repairing = any(item in compact for item in _REPAIR_PHRASES)
+    if repairing:
+        signals.append("用户正在纠正上一轮误解；采用用户的新说法，不要再次复述错误理解。")
+    practical = any(item in compact for item in _PRACTICAL_OBJECTS) and any(
+        item in compact for item in _PRACTICAL_CUES
+    )
+    if practical and not any(item in compact for item in _SCREEN_STATE_CUES):
+        signals.append("用户没有说明当前屏幕。本轮只问是否已经打开目标应用或现在看见什么，不给任何操作步骤。")
 
     if cognitive:
         care_mode = "cognitive_support"
+    elif repairing:
+        care_mode = "repair_support"
     elif repeated:
         care_mode = "repeat_support"
-    elif any(item in compact for item in _PRACTICAL_OBJECTS) and any(item in compact for item in _PRACTICAL_CUES):
+    elif practical:
         care_mode = "practical_help"
     elif any(item in compact for item in _HEALTH_TERMS):
         care_mode = "health_support"
