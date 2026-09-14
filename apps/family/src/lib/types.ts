@@ -100,3 +100,35 @@ export type FamilyElder = {
 };
 
 export type FamilyElderList = { items: FamilyElder[] };
+
+export type NotificationCategory =
+  | "emergency"
+  | "risk_follow_up"
+  | "registration"
+  | "authorization"
+  | "analysis_summary";
+
+export type NotificationItem = {
+  id: string;
+  category: NotificationCategory;
+  title: string;
+  body: string;
+  targetType: string;
+  targetId: string;
+  isRead: boolean;
+  readAt: string | null;
+  createdAt: string;
+};
+
+export type NotificationList = {
+  items: NotificationItem[];
+  unreadCount: number;
+  page: number;
+  perPage: number;
+  total: number;
+};
+
+export type NotificationReadResult = {
+  notification: NotificationItem;
+  duplicate: boolean;
+};

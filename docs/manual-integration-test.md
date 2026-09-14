@@ -36,7 +36,7 @@ npm install
 npm run dev
 ```
 
-打开 `http://localhost:3000`，通过右上角下拉框切换测试账号。
+打开 `http://localhost:3000/account`，使用下方合成账号的邮箱和密码登录。
 
 ## 手动验收路径
 
@@ -44,7 +44,7 @@ npm run dev
 2. 选择王先生，应只显示李爷爷、84 分和绿色平稳；不得看到陈奶奶的数据。
 3. 选择无授权账号，应显示访问被拒绝页，不得回退展示任何老人的 Mock 数据。
 4. 使用管理员令牌查询审计日志：`targetType=elder&targetId=elder-demo-001` 应看到 `family.today_viewed`；`targetType=risk_event&targetId=risk-demo-001` 应看到 `family.contacted`。
-5. 停止后端后刷新家属端，应明确显示“本地演示数据模式”，用于验证降级提示，不应把 Mock 行动视为正式记录。
+5. 停止后端后刷新家属端，应明确显示服务不可用，并且不得展示 Mock 或缓存的老人数据。
 
 ## 紧急求助接口联调
 
@@ -106,3 +106,15 @@ pytest tests/test_analysis_pipeline.py
 cd services/api
 pytest tests/test_notifications.py
 ```
+
+完整的真实 HTTP 烟雾联调可在一个一次性数据库上执行：
+
+```bash
+cd services/api
+DATABASE_URL=sqlite+pysqlite:////tmp/hearttrace-cross-client.db uvicorn app.main:app --port 8000
+
+# 另开终端，仍位于 services/api
+python3 scripts/cross_client_smoke.py
+```
+
+脚本依次模拟老人发起求助、管理端收到并处理、授权家属收到通知与安全状态变化，并验证无授权家属隔离、通知已读幂等和审计轨迹。只使用仓库内的合成演示账号；请勿指向装有真实数据的数据库。

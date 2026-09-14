@@ -2,17 +2,18 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { completeFamilyCarePlanItem, createFamilyCarePlanItem, getFamilyCarePlan, getFamilyElders, getFamilyToday, getFamilyTrend, recordFamilyAction } from "@/lib/family-api";
+import { completeFamilyCarePlanItem, createFamilyCarePlanItem, getFamilyCarePlan, getFamilyElders, getFamilyToday, getFamilyTrend, getNotifications, markNotificationRead, recordFamilyAction } from "@/lib/family-api";
 import { mockFamilyToday } from "@/lib/mock-family-data";
-import type { FamilyAction, FamilyCarePlanItem, FamilyElder, FamilyToday, FamilyTrend } from "@/lib/types";
+import type { FamilyAction, FamilyCarePlanItem, FamilyElder, FamilyToday, FamilyTrend, NotificationCategory, NotificationItem, NotificationList } from "@/lib/types";
 
-type PageKey = "today" | "report" | "trend" | "risk" | "plan" | "privacy";
+type PageKey = "today" | "report" | "trend" | "risk" | "notifications" | "plan" | "privacy";
 
 const navigation: { key: PageKey; label: string; icon: string }[] = [
   { key: "today", label: "今日关怀", icon: "☀" },
   { key: "report", label: "每日关怀报告", icon: "✦" },
   { key: "trend", label: "心境趋势", icon: "⌁" },
   { key: "risk", label: "风险提醒", icon: "◉" },
+  { key: "notifications", label: "消息通知", icon: "●" },
   { key: "plan", label: "陪伴计划", icon: "□" },
   { key: "privacy", label: "隐私与授权", icon: "⌘" }
 ];
@@ -22,8 +23,17 @@ const pageTitles: Record<PageKey, string> = {
   report: "每日关怀报告",
   trend: "心境趋势",
   risk: "风险提醒与行动",
+  notifications: "消息通知",
   plan: "陪伴计划",
   privacy: "隐私与授权"
+};
+
+const notificationLabels: Record<NotificationCategory, string> = {
+  emergency: "安全事件",
+  risk_follow_up: "关怀跟进",
+  registration: "注册审核",
+  authorization: "授权变更",
+  analysis_summary: "关怀摘要"
 };
 
 function Tag({ children, tone = "calm" }: { children: React.ReactNode; tone?: "calm" | "warm" | "alert" | "safe" }) {
@@ -50,6 +60,9 @@ export default function FamilyDashboard() {
   const [token, setToken] = useState<string | null>(null);
   const [sessionChecked, setSessionChecked] = useState(false);
   const [greeting, setGreeting] = useState("");
+  const [notifications, setNotifications] = useState<NotificationList>({ items: [], unreadCount: 0, page: 1, perPage: 25, total: 0 });
+  const [notificationLoading, setNotificationLoading] = useState(false);
+  const [notificationBusy, setNotificationBusy] = useState<string | null>(null);
 
   useEffect(() => {
     setGreeting(new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "long" }).format(new Date()));
@@ -77,20 +90,30 @@ export default function FamilyDashboard() {
 
     setSessionChecked(true);
     setApiState("loading");
+    setActorName(session.actor.displayName);
+    setToken(session.accessToken);
     setNotice("正在读取已授权的老人关系。");
+    setNotificationLoading(true);
+    void getNotifications(session.accessToken)
+      .then((result) => {
+        if (active) setNotifications(result);
+      })
+      .catch(() => {
+        if (active) setNotice("老人授权数据已连接，但消息通知暂时无法读取。");
+      })
+      .finally(() => {
+        if (active) setNotificationLoading(false);
+      });
     void getFamilyElders(session.accessToken)
       .then((result) => {
         if (result.items.length === 0) {
           if (!active) return;
-          setActorName(session.actor.displayName);
-          setToken(session.accessToken);
           setApiState("denied");
-          setNotice("该账号暂未获得任何老人的有效授权，服务端未返回老人数据。");
+          setPage("notifications");
+          setNotice("该账号暂无有效老人授权，仍可查看本人账号与授权变更通知。");
           return;
         }
         if (!active) return;
-        setActorName(session.actor.displayName);
-        setToken(session.accessToken);
         setElders(result.items);
         setSelectedElderId(result.items[0].id);
       })
@@ -138,6 +161,59 @@ export default function FamilyDashboard() {
     setToken(null);
     setApiState("signed_out");
     router.replace("/account");
+  };
+
+  const loadNotifications = async () => {
+    if (!token) return;
+    setNotificationLoading(true);
+    try {
+      setNotifications(await getNotifications(token));
+    } catch {
+      setNotice("消息通知暂时无法读取，请稍后重试。");
+    } finally {
+      setNotificationLoading(false);
+    }
+  };
+
+  const readNotification = async (item: NotificationItem) => {
+    if (!token || item.isRead) return;
+    setNotificationBusy(item.id);
+    try {
+      const result = await markNotificationRead(token, item.id);
+      setNotifications((current) => ({
+        ...current,
+        unreadCount: Math.max(0, current.unreadCount - 1),
+        items: current.items.map((entry) => entry.id === item.id ? result.notification : entry)
+      }));
+      setNotice("消息已标记为已读。");
+    } catch {
+      setNotice("消息状态暂未更新，请稍后重试。");
+    } finally {
+      setNotificationBusy(null);
+    }
+  };
+
+  const openNotification = async (item: NotificationItem) => {
+    if (!item.isRead) await readNotification(item);
+    if (!token || apiState !== "connected" || !selectedElderId) {
+      setNotice("当前授权未生效，只能查看通知内容，不能打开老人关怀数据。");
+      return;
+    }
+    const destination: Partial<Record<NotificationCategory, PageKey>> = {
+      emergency: "risk",
+      risk_follow_up: "risk",
+      analysis_summary: "report",
+      authorization: "privacy"
+    };
+    try {
+      setToday(await getFamilyToday(token, selectedElderId));
+      setPage(destination[item.category] ?? "notifications");
+      setNotice("已从消息刷新当前授权数据。");
+    } catch {
+      setApiState("denied");
+      setPage("notifications");
+      setNotice("授权状态已经变化，通知仍可查看，但老人关怀数据已停止返回。");
+    }
   };
 
   const recordAction = async (nextAction: FamilyAction, label: string) => {
@@ -205,8 +281,8 @@ export default function FamilyDashboard() {
 
         <nav aria-label="家属端导航">
           {navigation.map((item) => (
-            <button key={item.key} className={`nav-item ${page === item.key ? "active" : ""}`} onClick={() => setPage(item.key)}>
-              <span>{item.icon}</span>{item.label}
+            <button key={item.key} className={`nav-item ${page === item.key ? "active" : ""}`} onClick={() => { setPage(item.key); if (item.key === "notifications") void loadNotifications(); }}>
+              <span>{item.icon}</span>{item.label}{item.key === "notifications" && notifications.unreadCount > 0 && <b>{notifications.unreadCount}</b>}
             </button>
           ))}
         </nav>
@@ -221,14 +297,16 @@ export default function FamilyDashboard() {
         <header className="topbar">
           <div><p suppressHydrationWarning>{greeting || "今日关怀"}</p><h1>{pageTitles[page]}</h1></div>
           <div className="top-actions">
-            <Tag tone={apiState === "connected" ? "safe" : "alert"}>{apiState === "connected" ? "已授权查看" : "暂不可查看"}</Tag>
-            {apiState === "connected" ? <><a className="profile" href="/account/security">账户安全</a><button className="profile" onClick={logout}>{actorName} · 退出</button></> : <a className="profile" href="/account">登录家属账号</a>}
+            <Tag tone={page === "notifications" && token ? "calm" : apiState === "connected" ? "safe" : "alert"}>{page === "notifications" && token ? "本人消息" : apiState === "connected" ? "已授权查看" : "暂不可查看"}</Tag>
+            {token ? <><a className="profile" href="/account/security">账户安全</a><button className="profile" onClick={logout}>{actorName} · 退出</button></> : <a className="profile" href="/account">登录家属账号</a>}
           </div>
         </header>
 
         <div className="notice" role="status"><span>i</span>{notice}</div>
 
-        {apiState !== "connected" ? (
+        {page === "notifications" && token ? (
+          <NotificationView notifications={notifications} loading={notificationLoading} busyId={notificationBusy} canOpenCare={apiState === "connected"} onRefresh={loadNotifications} onRead={readNotification} onOpen={openNotification} />
+        ) : apiState !== "connected" ? (
           <Card className="access-denied"><Tag tone="alert">{apiState === "signed_out" ? "需要登录" : apiState === "denied" ? "暂未授权" : "服务不可用"}</Tag><h2>{apiState === "signed_out" ? "登录后才能查看关怀信息" : apiState === "denied" ? "当前账号暂未获得老人授权" : "暂时无法读取关怀数据"}</h2><p>{apiState === "signed_out" ? "仅已获管理端批准的家属账号可登录。" : "为保护老人隐私，页面不会在异常状态下展示任何模拟或缓存的老人数据。"}</p>{apiState === "signed_out" && <a className="primary" href="/account">前往登录</a>}</Card>
         ) : (
           <>
@@ -243,6 +321,27 @@ export default function FamilyDashboard() {
       </div>
     </main>
   );
+}
+
+function NotificationView({ notifications, loading, busyId, canOpenCare, onRefresh, onRead, onOpen }: { notifications: NotificationList; loading: boolean; busyId: string | null; canOpenCare: boolean; onRefresh: () => Promise<void>; onRead: (item: NotificationItem) => Promise<void>; onOpen: (item: NotificationItem) => Promise<void> }) {
+  return <Card className="family-notifications">
+    <div className="card-heading notification-heading"><div><p className="muted">只属于当前账号</p><h2>业务消息</h2><small>授权撤销后仍可查看本人收到的授权结果，但不能继续读取老人数据。</small></div><div><Tag tone={notifications.unreadCount > 0 ? "warm" : "safe"}>{notifications.unreadCount} 条未读</Tag><button className="secondary" disabled={loading} onClick={() => { void onRefresh(); }}>{loading ? "刷新中…" : "刷新"}</button></div></div>
+    <div className="family-notification-list">
+      {loading && <div className="notification-empty">正在读取消息…</div>}
+      {!loading && notifications.items.length === 0 && <div className="notification-empty">暂时没有业务消息</div>}
+      {!loading && notifications.items.map((item) => {
+        const hasCareDestination = ["emergency", "risk_follow_up", "analysis_summary", "authorization"].includes(item.category);
+        return <article className={item.isRead ? "read" : "unread"} key={item.id}>
+          <span className={`family-notification-kind ${item.category}`}>{notificationLabels[item.category]}</span>
+          <div><div className="family-notification-title"><h3>{item.title}</h3>{!item.isRead && <b>未读</b>}</div><p>{item.body}</p><small>{formatDateTime(item.createdAt)}</small></div>
+          <div className="family-notification-actions">
+            {!item.isRead && <button className="secondary" disabled={busyId === item.id} onClick={() => { void onRead(item); }}>{busyId === item.id ? "处理中…" : "标为已读"}</button>}
+            {hasCareDestination && <button className="primary" disabled={busyId === item.id || !canOpenCare} title={canOpenCare ? undefined : "当前无有效老人授权"} onClick={() => { void onOpen(item); }}>查看关怀</button>}
+          </div>
+        </article>;
+      })}
+    </div>
+  </Card>;
 }
 
 function TodayView({ today, action, onAction, onNavigate }: { today: FamilyToday; action: string; onAction: (action: FamilyAction, label: string) => Promise<void>; onNavigate: () => void }) {
