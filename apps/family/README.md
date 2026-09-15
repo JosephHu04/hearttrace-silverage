@@ -6,6 +6,7 @@
 - 每日关怀报告与可追溯主题摘要
 - 只与个人基线比较的 7/30 天心境趋势
 - 风险、紧急联络与设备事件处置状态
+- 本人业务通知、未读状态与关怀页面跳转
 - 仅当前家属可见、可完成的陪伴计划
 - 授权范围与访问审计
 
@@ -40,5 +41,9 @@ NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 5. `GET/POST /api/family/elders/{id}/care-plan`
 6. `POST /api/family/elders/{id}/care-plan/{itemId}/complete`
 7. `POST /api/family/risk-events/{id}/actions`
+8. `GET /api/notifications/me`
+9. `POST /api/notifications/{id}/read`
 
 在任何 API 接入中，前端不得传入或自行决定授权 scope；服务端必须校验当前家属与老人的关系和授权状态。
+
+通知属于登录账号本身：即使老人授权已被撤销，家属仍可读取“授权已撤销”等本人通知，但不能借此访问任何老人摘要、趋势或关怀计划。

@@ -1,4 +1,4 @@
-import type { ActionResult, AuthMessage, FamilyAction, FamilyCarePlanItem, FamilyElderList, FamilyToday, FamilyTrend, LoginResult, RegistrationApplication } from "./types";
+import type { ActionResult, AuthMessage, FamilyAction, FamilyCarePlanItem, FamilyElderList, FamilyToday, FamilyTrend, LoginResult, NotificationList, NotificationReadResult, RegistrationApplication } from "./types";
 
 const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
@@ -51,6 +51,16 @@ export function createFamilyCarePlanItem(token: string, elderId: string, title: 
 
 export function completeFamilyCarePlanItem(token: string, elderId: string, itemId: string) {
   return request<FamilyCarePlanItem>(`/api/family/elders/${elderId}/care-plan/${itemId}/complete`, token, {
+    method: "POST"
+  });
+}
+
+export function getNotifications(token: string) {
+  return request<NotificationList>("/api/notifications/me?perPage=25", token);
+}
+
+export function markNotificationRead(token: string, notificationId: string) {
+  return request<NotificationReadResult>(`/api/notifications/${notificationId}/read`, token, {
     method: "POST"
   });
 }
