@@ -324,6 +324,8 @@ def test_emotional_prompt_covers_grief_mixed_feelings_and_dependency_boundary() 
     assert plan.care_mode == "emotional_support"
     assert "不要把逝者说成仍然在世" in prompt
     assert "可以承认两部分" in prompt
+    assert "用户表达了现实联系意愿" in prompt
+    assert "低负担的联系动作" in prompt
     assert "我随时都在" in prompt
 
 
@@ -376,6 +378,31 @@ def test_companion_evaluation_corpus_and_quality_checks() -> None:
     cases = load_cases()
     repair_case = next(item for item in cases if item["id"] == "repair-adopts-correction")
 
+    for case in cases:
+        history = case["history"]
+        recent_users = [
+            item["content"]
+            for item in reversed(history)
+            if item["role"] == "user"
+        ]
+        recent_assistants = [
+            item["content"]
+            for item in reversed(history)
+            if item["role"] == "assistant"
+        ]
+        plan = plan_care_turn(
+            case["message"],
+            turn_count=len(recent_users),
+            recent_user_messages=recent_users,
+            recent_openings=[item[:32] for item in recent_assistants],
+            recent_question_count=sum(
+                1
+                for item in recent_assistants[:2]
+                if "？" in item or "?" in item
+            ),
+        )
+        assert plan.care_mode == case["expected"]["care_mode"], case["id"]
+
     passing = assess_reply(
         repair_case,
         "repair_support",
@@ -387,7 +414,7 @@ def test_companion_evaluation_corpus_and_quality_checks() -> None:
         "老人家，手机屏幕是哪里不对？是不是坏了？",
     )
 
-    assert len(cases) == 7
+    assert len(cases) == 11
     assert all(passing.values())
     assert not all(failing.values())
 

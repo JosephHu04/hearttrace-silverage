@@ -6,7 +6,7 @@
     "expected": {
       "care_mode": "natural_adult",
       "required_any": ["桂花", "楼下", "半小时"],
-      "forbidden_phrases": ["腿脚", "记性", "年纪大"],
+      "forbidden_phrases": ["腿脚", "记性", "年纪大", "心里也", "心情一定"],
       "max_chars": 120,
       "max_questions": 1
     }
@@ -18,7 +18,7 @@
     "expected": {
       "care_mode": "emotional_support",
       "required_any": ["女儿", "两天", "没人"],
-      "forbidden_phrases": ["她一定", "自然会", "肯定会", "想开点", "发慌"],
+      "forbidden_phrases": ["她一定", "自然会", "肯定会", "想开点", "发慌", "空落落", "难熬"],
       "max_chars": 120,
       "max_questions": 1
     }
@@ -58,7 +58,7 @@
     "expected": {
       "care_mode": "repair_support",
       "required_any": ["电视", "遥控器"],
-      "forbidden_phrases": ["手机屏幕"],
+      "forbidden_phrases": ["手机屏幕", "坏了", "可能是", "如果换了还不行"],
       "max_chars": 120,
       "max_questions": 1
     }
@@ -85,9 +85,61 @@
     "expected": {
       "care_mode": "repeat_support",
       "required_any": ["天气", "凉快", "凉"],
-      "forbidden_phrases": ["刚才说过", "重复了", "肩膀", "膝盖", "腿脚", "记得带", "别着凉", "建议您"],
+      "forbidden_phrases": ["刚才说过", "重复了", "肩膀", "膝盖", "腿脚", "记得带", "别着凉", "建议您", "九月", "秋意", "风一吹", "屋里", "出去转"],
       "max_chars": 110,
       "max_questions": 1
+    }
+  },
+  {
+    "id": "mixed-feelings-keep-agency",
+    "history": [],
+    "message": "我想给女儿打电话，又怕她工作忙，还是算了。",
+    "expected": {
+      "care_mode": "emotional_support",
+      "required_any": ["女儿", "打电话", "怕打扰", "工作忙", "想打", "短消息", "微信", "不打扰"],
+      "forbidden_phrases": ["她肯定", "她只是忙", "别想太多", "您应该", "必须打"],
+      "max_chars": 130,
+      "max_questions": 1
+    }
+  },
+  {
+    "id": "grief-follows-concrete-memory",
+    "history": [],
+    "message": "老伴走了三年，每次包饺子我还会想起他以前擀皮的样子。",
+    "expected": {
+      "care_mode": "emotional_support",
+      "required_any": ["老伴", "饺子", "擀皮"],
+      "forbidden_phrases": ["走出来", "放下", "想开点", "他一定在", "联系他"],
+      "max_chars": 130,
+      "max_questions": 1
+    }
+  },
+  {
+    "id": "identity-and-contribution",
+    "history": [],
+    "message": "社区活动的账以前都是我来算，大家都放心交给我。",
+    "expected": {
+      "care_mode": "natural_adult",
+      "required_any": ["社区", "账", "放心", "交给您"],
+      "forbidden_phrases": ["年纪大", "记性", "力不从心", "辛苦一辈子"],
+      "max_chars": 130,
+      "max_questions": 1
+    }
+  },
+  {
+    "id": "question-rhythm-pause",
+    "history": [
+      {"role": "assistant", "content": "您今天吃过饭了吗？"},
+      {"role": "user", "content": "吃过了。"},
+      {"role": "assistant", "content": "中午吃的什么？"}
+    ],
+    "message": "吃了碗面，想起以前老伴做的面了。",
+    "expected": {
+      "care_mode": "reminiscence",
+      "required_any": ["老伴", "面", "回忆", "这件事", "慢慢讲"],
+      "forbidden_phrases": ["什么口味", "怎么做", "哪一种", "一定", "肯定"],
+      "max_chars": 120,
+      "max_questions": 0
     }
   }
 ]

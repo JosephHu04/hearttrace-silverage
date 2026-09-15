@@ -107,16 +107,23 @@ def assess_reply(case: dict[str, Any], care_mode: str, reply: str) -> dict[str, 
 def _run_case(client: CompanionClient, case: dict[str, Any]) -> dict[str, Any]:
     history = list(case["history"])
     recent_users = [item["content"] for item in reversed(history) if item["role"] == "user"]
-    recent_openings = [
-        item["content"].splitlines()[0][:32]
+    recent_assistants = [
+        item["content"]
         for item in reversed(history)
         if item["role"] == "assistant"
     ]
+    recent_openings = [item.splitlines()[0][:32] for item in recent_assistants]
+    recent_question_count = sum(
+        1
+        for item in recent_assistants[:2]
+        if "？" in item or "?" in item
+    )
     plan = plan_care_turn(
         case["message"],
         turn_count=len(recent_users),
         recent_user_messages=recent_users,
         recent_openings=recent_openings,
+        recent_question_count=recent_question_count,
     )
     history.append({"role": "user", "content": case["message"]})
     started = time.perf_counter()

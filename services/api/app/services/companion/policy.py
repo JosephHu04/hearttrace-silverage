@@ -39,8 +39,9 @@ _EMOTIONAL_TERMS = (
     "没人管", "没和人说话", "没人说话", "没有人说话", "屋里太安静", "被忘了",
     "想孙子", "想女儿", "想儿子", "想老伴", "去世", "过世", "老伴走了", "不在了", "委屈",
     "嫌弃", "吵架", "怕打扰", "不想麻烦", "心里空", "高兴", "开心",
+    "一个人吃饭", "想找人说说话", "想找老邻居说说话",
 )
-_REMINISCENCE_TERMS = ("我以前", "年轻那会", "年轻时", "当年", "小时候", "从前", "老家")
+_REMINISCENCE_TERMS = ("我以前", "想起以前", "年轻那会", "年轻时", "当年", "小时候", "从前", "老家")
 _COGNITIVE_PHRASES = ("我要回家", "这不是我家", "有人偷了我的", "有人要害我", "我要找妈妈", "我要找爸爸")
 _REPAIR_PHRASES = (
     "你听错了", "您听错了", "没听清", "没听懂", "不是这个意思", "我不是说",
@@ -189,6 +190,10 @@ def plan_care_turn(
     compact = _compact(message)
     familiarity = "first_meeting" if turn_count < 4 else "getting_familiar" if turn_count < 24 else "long_term"
     repeated = len(compact) >= 2 and any(compact == _compact(item) for item in recent_user_messages[:4])
+    connection_wish = (
+        "想给" in compact
+        and any(item in compact for item in ("打电话", "发消息", "发微信"))
+    ) or any(item in compact for item in ("想找人说说话", "想找老邻居说说话"))
     signals: list[str] = []
     if repeated:
         signals.append("用户近几轮说过相同的话；耐心重新回应，不指出重复。")
@@ -201,6 +206,8 @@ def plan_care_turn(
         signals.append("用户可能在谈丧亲；不要把逝者说成仍然在世，也不要催促放下或想开。")
     if any(item in compact for item in ("怕打扰", "不想麻烦")):
         signals.append("用户可能同时想联系家人又怕打扰；可以承认两部分，不替用户或家人做决定。")
+    if connection_wish:
+        signals.append("用户表达了现实联系意愿；先尊重犹豫，若用户愿意，只给一个低负担的联系动作，不保证对方反应。")
     if any(item in compact for item in ("吵架", "嫌弃", "委屈")):
         signals.append("涉及家庭矛盾；回应具体影响，不猜动机、不站队，也不劝用户一味忍耐。")
     if "膝盖" in compact and any(item in compact for item in ("疼", "痛")):
@@ -213,6 +220,8 @@ def plan_care_turn(
     )
     if practical and not any(item in compact for item in _SCREEN_STATE_CUES):
         signals.append("用户没有说明当前屏幕。本轮只问是否已经打开目标应用或现在看见什么，不给任何操作步骤。")
+    if repairing and practical:
+        signals.append("纠正后仍是设备操作问题；只采用新对象并给一个可确认动作，不猜设备损坏，也不追加备用步骤。")
 
     if cognitive:
         care_mode = "cognitive_support"
@@ -224,7 +233,7 @@ def plan_care_turn(
         care_mode = "practical_help"
     elif any(item in compact for item in _HEALTH_TERMS):
         care_mode = "health_support"
-    elif any(item in compact for item in _EMOTIONAL_TERMS):
+    elif connection_wish or any(item in compact for item in _EMOTIONAL_TERMS):
         care_mode = "emotional_support"
     elif any(item in compact for item in _REMINISCENCE_TERMS):
         care_mode = "reminiscence"

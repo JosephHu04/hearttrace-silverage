@@ -76,6 +76,7 @@ class CompanionClient:
             sentence.strip()
             for sentence in sentences
             if sentence.strip() and not question_cue.search(sentence)
+            and not any(marker in sentence for marker in ("一定", "肯定", "多半"))
         ]
         candidate = "".join(statements).strip()
         if context.care_mode == "health_support" and any(
