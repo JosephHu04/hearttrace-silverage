@@ -414,7 +414,7 @@ def test_companion_evaluation_corpus_and_quality_checks() -> None:
         "老人家，手机屏幕是哪里不对？是不是坏了？",
     )
 
-    assert len(cases) == 11
+    assert len(cases) == 12
     assert all(passing.values())
     assert not all(failing.values())
 

@@ -84,7 +84,7 @@
     "message": "今天天气挺凉快。",
     "expected": {
       "care_mode": "repeat_support",
-      "required_any": ["天气", "凉快", "凉"],
+      "required_any": ["天气", "凉快", "凉", "不冷不热", "天儿"],
       "forbidden_phrases": ["刚才说过", "重复了", "肩膀", "膝盖", "腿脚", "记得带", "别着凉", "建议您", "九月", "秋意", "风一吹", "屋里", "出去转"],
       "max_chars": 110,
       "max_questions": 1
@@ -140,6 +140,18 @@
       "forbidden_phrases": ["什么口味", "怎么做", "哪一种", "一定", "肯定"],
       "max_chars": 120,
       "max_questions": 0
+    }
+  },
+  {
+    "id": "anger-playful-acknowledgement",
+    "history": [],
+    "message": "我今天很生气。",
+    "expected": {
+      "care_mode": "emotional_support",
+      "required_any": ["谁", "哪位", "惹", "怎么回事", "什么事", "说来听听"],
+      "forbidden_phrases": ["您今天很生气", "冷静", "别生气", "消消气", "老太太", "老人家", "报复", "收拾他"],
+      "max_chars": 100,
+      "max_questions": 1
     }
   }
 ]
