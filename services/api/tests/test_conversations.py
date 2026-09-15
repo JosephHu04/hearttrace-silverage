@@ -1,4 +1,9 @@
+from types import SimpleNamespace
+
+import httpx
+import pytest
 from fastapi.testclient import TestClient
+from openai import APIConnectionError, APITimeoutError
 
 from companion_evaluate import assess_reply, load_cases
 from app.services.companion.client import CompanionClient
@@ -119,11 +124,53 @@ def test_safety_language_bypasses_generation() -> None:
         turn_count=0,
         recent_user_messages=[],
         recent_openings=[],
+        emergency_number="120",
     )
 
     assert plan.processing == "local_safety"
     assert plan.direct_reply is not None
     assert "120" in plan.direct_reply
+
+
+def test_local_safety_covers_medication_fraud_and_abuse() -> None:
+    medication = plan_care_turn(
+        "我刚才多吃了一片药",
+        turn_count=0,
+        recent_user_messages=[],
+        recent_openings=[],
+    )
+    fraud = plan_care_turn(
+        "有人让我转账到安全账户",
+        turn_count=0,
+        recent_user_messages=[],
+        recent_openings=[],
+    )
+    abuse = plan_care_turn(
+        "家里人把我锁起来，不让我出门",
+        turn_count=0,
+        recent_user_messages=[],
+        recent_openings=[],
+    )
+
+    assert medication.scene == "medication_safety"
+    assert medication.processing == "local_safety"
+    assert "拨打999" in (medication.direct_reply or "")
+    assert fraud.scene == "fraud_safety"
+    assert "暂停转账" in (fraud.direct_reply or "")
+    assert abuse.scene == "personal_safety"
+    assert "您现在安全吗" in (abuse.direct_reply or "")
+
+
+def test_invalid_emergency_number_falls_back_to_safe_default() -> None:
+    plan = plan_care_turn(
+        "我突然胸痛",
+        turn_count=0,
+        recent_user_messages=[],
+        recent_openings=[],
+        emergency_number="call-anything",
+    )
+
+    assert "拨打999" in (plan.direct_reply or "")
 
 
 def test_flash_request_is_short_non_thinking_generation() -> None:
@@ -170,6 +217,114 @@ def test_prompt_has_spoken_response_and_repair_contract() -> None:
     assert "最多两个具体选项" in prompt
     assert "不要再次复述错误理解" in prompt
     assert "输出前静默自检" in prompt
+
+
+def test_two_recent_questions_force_a_statement_turn() -> None:
+    plan = plan_care_turn(
+        "吃了碗面，想起以前老伴做的面了",
+        turn_count=4,
+        recent_user_messages=[],
+        recent_openings=["中午吃的什么？", "您今天吃过饭了吗？"],
+        recent_question_count=2,
+    )
+    prompt = build_elder_prompt(plan.context)
+    request_client = CompanionClient(get_settings())
+    request_client._client = object()  # type: ignore[assignment]
+    request = request_client.request_args(
+        [{"role": "user", "content": "吃了碗面，想起以前老伴做的面了"}],
+        plan.context,
+    )
+    normalized = CompanionClient._enforce_question_pause(
+        "老伴做的面，您一直记着。她以前常做什么口味？",
+        plan.context,
+    )
+
+    assert "不得有问号或疑问句" in prompt
+    assert "不得包含问号、疑问词或任何疑问句" in request["messages"][-2]["content"]
+    assert normalized == "老伴做的面，您一直记着。"
+    assert "？" not in normalized
+
+
+def test_stream_retries_one_immediate_connection_failure() -> None:
+    class FlakyCompletions:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def create(self, **_kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                raise APIConnectionError(
+                    request=httpx.Request("POST", "https://example.invalid")
+                )
+            delta = SimpleNamespace(content="网络接上了。")
+            return iter((SimpleNamespace(choices=[SimpleNamespace(delta=delta)]),))
+
+    completions = FlakyCompletions()
+    client = CompanionClient(get_settings())
+    client._client = SimpleNamespace(  # type: ignore[assignment]
+        chat=SimpleNamespace(completions=completions)
+    )
+    plan = plan_care_turn(
+        "今天想说说话",
+        turn_count=0,
+        recent_user_messages=[],
+        recent_openings=[],
+    )
+
+    _, chunks = client.stream_reply(
+        [{"role": "user", "content": "今天想说说话"}], plan.context
+    )
+
+    assert list(chunks) == ["网络接上了。"]
+    assert completions.calls == 2
+
+
+def test_stream_does_not_retry_a_full_timeout() -> None:
+    class TimeoutCompletions:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def create(self, **_kwargs):
+            self.calls += 1
+            raise APITimeoutError(
+                httpx.Request("POST", "https://example.invalid")
+            )
+
+    completions = TimeoutCompletions()
+    client = CompanionClient(get_settings())
+    client._client = SimpleNamespace(  # type: ignore[assignment]
+        chat=SimpleNamespace(completions=completions)
+    )
+    plan = plan_care_turn(
+        "今天想说说话",
+        turn_count=0,
+        recent_user_messages=[],
+        recent_openings=[],
+    )
+
+    _, chunks = client.stream_reply(
+        [{"role": "user", "content": "今天想说说话"}], plan.context
+    )
+
+    with pytest.raises(APITimeoutError):
+        list(chunks)
+    assert completions.calls == 1
+
+
+def test_emotional_prompt_covers_grief_mixed_feelings_and_dependency_boundary() -> None:
+    plan = plan_care_turn(
+        "老伴去世后，我想给女儿打电话，又怕打扰她",
+        turn_count=5,
+        recent_user_messages=[],
+        recent_openings=[],
+    )
+
+    prompt = build_elder_prompt(plan.context)
+
+    assert plan.care_mode == "emotional_support"
+    assert "不要把逝者说成仍然在世" in prompt
+    assert "可以承认两部分" in prompt
+    assert "我随时都在" in prompt
 
 
 def test_policy_detects_social_and_reminiscence_phrasing() -> None:

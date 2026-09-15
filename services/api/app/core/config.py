@@ -24,9 +24,11 @@ class Settings(BaseSettings):
     dashscope_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     dashscope_companion_model: str = "qwen3.8-flash"
     dashscope_companion_timeout_seconds: float = 8.0
+    dashscope_companion_connection_retries: int = 1
     companion_history_limit: int = 16
     companion_history_character_budget: int = 3200
     companion_max_tokens: int = 160
+    elder_emergency_number: str = "999"
     elder_default_location: str = "澳门"
     elder_default_latitude: float = 22.1987
     elder_default_longitude: float = 113.5439

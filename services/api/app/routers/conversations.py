@@ -186,12 +186,12 @@ def _next_chunk(iterator: Iterator[str]) -> tuple[bool, str]:
 
 def _fallback(care_mode: str) -> str:
     replies = {
-        "emotional_support": "网络有点慢，但我在听。您愿意再多说一句吗？",
+        "emotional_support": "网络有点慢，但您刚才的话我收到了。您慢慢说，我在听。",
         "reminiscence": "刚才网络慢了一下，您说的这件事我记在这次谈话里。您接着说，我听着。",
-        "practical_help": "刚才网络没有接稳。请告诉我您现在屏幕上看见什么，我们只做下一步。",
-        "health_support": "刚才网络没有接稳。请再告诉我现在最明显的不舒服是什么，我接着听。",
+        "practical_help": "刚才网络没有接稳。请先停在当前页面，重新连接后我们再只做下一步。",
+        "health_support": "刚才网络没有接稳。先按已有医嘱处理；如果明显加重，请联系医生或身边的人。",
     }
-    return replies.get(care_mode, "刚才网络没有接稳。您的话我收到了，请再说一遍，我马上接着。")
+    return replies.get(care_mode, "刚才网络没有接稳。您的话我收到了，您可以慢慢再说一遍。")
 
 
 async def _reject(websocket: WebSocket, *, code: int, message: str) -> None:
@@ -261,12 +261,22 @@ async def realtime_conversation(websocket: WebSocket) -> None:
 
             started = time.perf_counter()
             previous_users = [item["content"] for item in reversed(history) if item["role"] == "user"]
-            openings = [item["content"].splitlines()[0][:32] for item in reversed(history) if item["role"] == "assistant"]
+            previous_assistants = [
+                item["content"]
+                for item in reversed(history)
+                if item["role"] == "assistant"
+            ]
+            openings = [item.splitlines()[0][:32] for item in previous_assistants]
+            recent_question_count = sum(
+                1 for item in previous_assistants[:2] if "？" in item or "?" in item
+            )
             plan = plan_care_turn(
                 message,
                 turn_count=sum(1 for item in history if item["role"] == "user"),
                 recent_user_messages=previous_users,
                 recent_openings=openings,
+                recent_question_count=recent_question_count,
+                emergency_number=settings.elder_emergency_number,
             )
             history.append({"role": "user", "content": message})
             history = history[-settings.companion_history_limit:]
@@ -282,6 +292,7 @@ async def realtime_conversation(websocket: WebSocket) -> None:
             reply_parts: list[str] = []
             first_delta_ms: int | None = None
             model = "local-safety-router" if plan.direct_reply else "local-live-info" if live_info else settings.dashscope_companion_model
+            processing = plan.processing
             try:
                 if plan.direct_reply or live_info:
                     iterator: Iterator[str] = iter((plan.direct_reply or live_info.reply,))
@@ -315,13 +326,14 @@ async def realtime_conversation(websocket: WebSocket) -> None:
                 logger.warning("Companion generation degraded: %s", type(exc).__name__)
                 reply = _fallback(plan.care_mode)
                 model = "local-network-fallback"
+                processing = "network_fallback"
                 first_delta_ms = round((time.perf_counter() - started) * 1000)
-                await websocket.send_json({"type": "meta", "model": model, "processing": "network_fallback"})
+                await websocket.send_json({"type": "meta", "model": model, "processing": processing})
                 await websocket.send_json({"type": "delta", "text": reply})
 
             history.append({"role": "assistant", "content": reply})
             history = history[-settings.companion_history_limit:]
-            _persist_message(session_id, role="assistant", content=reply, processing=plan.processing, model=model)
+            _persist_message(session_id, role="assistant", content=reply, processing=processing, model=model)
             await websocket.send_json(
                 {
                     "type": "done",
