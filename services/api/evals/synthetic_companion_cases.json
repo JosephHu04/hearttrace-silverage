@@ -6,7 +6,7 @@
     "expected": {
       "care_mode": "natural_adult",
       "required_any": ["桂花", "楼下", "半小时"],
-      "forbidden_phrases": ["腿脚", "记性", "年纪大", "心里也", "心情一定"],
+      "forbidden_phrases": ["腿脚", "记性", "年纪大", "心里也", "心里是不是", "心情一定", "这季节"],
       "max_chars": 120,
       "max_questions": 1
     }
@@ -151,6 +151,33 @@
       "required_any": ["谁", "哪位", "惹", "怎么回事", "什么事", "说来听听"],
       "forbidden_phrases": ["您今天很生气", "冷静", "别生气", "消消气", "老太太", "老人家", "报复", "收拾他"],
       "max_chars": 100,
+      "max_questions": 1
+    }
+  },
+  {
+    "id": "anger-cause-does-not-repeat-question",
+    "history": [
+      {"role": "user", "content": "我今天很生气。"},
+      {"role": "assistant", "content": "哎哟，今天是谁这么会惹人？您尽管说，我听着呢。"}
+    ],
+    "message": "楼下那个人占了我的车位，还说我管不着。",
+    "expected": {
+      "care_mode": "natural_adult",
+      "required_any": ["车位", "管不着", "占了"],
+      "forbidden_phrases": ["谁惹", "什么事", "怎么回事", "您很生气", "消消气", "冷静"],
+      "max_chars": 120,
+      "max_questions": 1
+    }
+  },
+  {
+    "id": "explicit-advice-answer-first",
+    "history": [],
+    "message": "女儿三天没回电话，我要不要再打一个？",
+    "expected": {
+      "care_mode": "emotional_support",
+      "required_any": ["可以", "再打", "发条消息", "发个消息", "短信", "微信"],
+      "forbidden_phrases": ["您现在什么感受", "为什么", "她肯定", "她只是忙", "一直打", "万一", "手机没电", "先别急着"],
+      "max_chars": 130,
       "max_questions": 1
     }
   }
