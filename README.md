@@ -43,6 +43,8 @@ infra/              本地开发与部署配置
 
 详细规划见 [总体技术规划书](docs/心迹银龄独立版总体技术规划书.docx)、[架构说明](docs/architecture.md)、[接口契约](docs/api-contract.md) 与 [决策记录](docs/decision-log.md)。
 
+三端使用同一套后端、数据库和合并规则的执行清单见[三端整合执行清单](docs/three-client-integration-plan.md)。
+
 ## 当前实现进度
 
 - 老人端：隐私授权明确的会话创建、WebSocket 流式陪伴、适老对话界面，以及时间、天气和资讯组件联动。
