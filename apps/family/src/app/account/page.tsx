@@ -16,6 +16,7 @@ export default function AccountPage() {
     setNotice("");
     try {
       const result = await loginWithPassword(String(values.get("loginIdentifier")), String(values.get("password")));
+      if (result.actor.role !== "family") throw new Error("请使用家属账号登录此页面。");
       sessionStorage.setItem("hearttrace.family.session", JSON.stringify({ accessToken: result.accessToken, actor: result.actor }));
       router.replace("/");
     } catch (error) {

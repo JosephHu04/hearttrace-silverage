@@ -1,11 +1,12 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from sqlalchemy import text
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings
 from app.db.seed import seed_demo_data
-from app.db.session import SessionLocal, create_schema
+from app.db.session import SessionLocal, create_schema, engine
 from app.routers import admin_accounts, admin_risks, auth, conversations, emergencies, family, notifications
 from app.schemas import HealthOut
 
@@ -25,7 +26,20 @@ def validate_runtime_settings() -> None:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     validate_runtime_settings()
-    create_schema()
+    if settings.environment.lower() == "production":
+        from pathlib import Path
+        from alembic.config import Config
+        from alembic.runtime.migration import MigrationContext
+        from alembic.script import ScriptDirectory
+        api_dir = Path(__file__).resolve().parents[1]
+        config = Config(str(api_dir / "alembic.ini"))
+        config.set_main_option("script_location", str(api_dir / "migrations"))
+        with engine.connect() as connection:
+            current = set(MigrationContext.configure(connection).get_current_heads())
+        if current != set(ScriptDirectory.from_config(config).get_heads()):
+            raise RuntimeError("生产数据库未迁移到当前版本，请先执行 alembic upgrade head")
+    else:
+        create_schema()
     if settings.seed_demo_data:
         with SessionLocal() as db:
             seed_demo_data(db)
@@ -56,6 +70,15 @@ def create_app() -> FastAPI:
 
     @application.get(f"{settings.api_prefix}/health", response_model=HealthOut, tags=["system"])
     def health() -> HealthOut:
+        return HealthOut(status="ok", service="core-api")
+
+    @application.get(f"{settings.api_prefix}/ready", response_model=HealthOut, tags=["system"])
+    def ready() -> HealthOut:
+        try:
+            with engine.connect() as connection:
+                connection.execute(text("SELECT 1"))
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="数据库暂时不可用") from exc
         return HealthOut(status="ok", service="core-api")
 
     return application

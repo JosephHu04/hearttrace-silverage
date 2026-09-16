@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import timedelta, timezone
 from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -141,6 +141,11 @@ def _ensure_system_actor(db: Session) -> User:
 def _claim_next_event(db: Session) -> OutboxEvent | None:
     now = utc_now()
     lease_expired_at = now - timedelta(minutes=LEASE_MINUTES)
+    db.execute(update(OutboxEvent).where(
+        OutboxEvent.event_type == ANALYSIS_EVENT_TYPE, OutboxEvent.status == "processing",
+        OutboxEvent.attempts >= MAX_ATTEMPTS, OutboxEvent.locked_at < lease_expired_at,
+    ).values(status="failed", locked_at=None, last_error="worker_lease_expired", updated_at=now))
+    db.commit()
     event = db.scalar(
         select(OutboxEvent)
         .where(
@@ -208,15 +213,12 @@ def _validate_output(raw: dict[str, Any], turn_count: int) -> CandidateAnalysis:
 def _review_level(analysis: CandidateAnalysis) -> str:
     if analysis.urgent_safety_check or analysis.recommended_next_step == "emergency_workflow":
         return "orange"
-    return "yellow"
+    return "green" if analysis.recommended_next_step == "daily_care" else "yellow"
 
 
 def _needs_human_review(analysis: CandidateAnalysis) -> bool:
-    return analysis.urgent_safety_check or analysis.recommended_next_step in {
-        "invite_screening",
-        "human_follow_up",
-        "emergency_workflow",
-    }
+    # Routine summaries also need a publication path and explicit human approval.
+    return True
 
 
 def _attach_review_event(
@@ -240,7 +242,24 @@ def _attach_review_event(
     detail = "候选信号：" + "、".join(SIGNAL_LABELS[item] for item in analysis.candidate_signals)
     detail += "。模型信号不单独构成诊断或最终风险结论。"
     if existing is not None:
-        existing.source_analysis_id = analysis_record.id
+        now = utc_now()
+        priority = {"green": 0, "yellow": 1, "orange": 2, "red": 3}
+        level = _review_level(analysis)
+        changes: dict[str, Any] = {"version": existing.version + 1, "updated_at": now}
+        if priority[level] >= priority[existing.level]:
+            changes.update(source_analysis_id=analysis_record.id, model_version=analysis_record.model_version, level=level)
+        if level == "orange":
+            due = existing.sla_due_at
+            if due is not None and due.tzinfo is None:
+                due = due.replace(tzinfo=timezone.utc)
+            changes["sla_due_at"] = min(due, now + timedelta(minutes=30)) if due else now + timedelta(minutes=30)
+        changed = db.execute(update(RiskEvent).where(
+            RiskEvent.id == existing.id, RiskEvent.version == existing.version,
+            RiskEvent.status.in_(mergeable_statuses),
+        ).values(**changes).execution_options(synchronize_session=False))
+        if changed.rowcount != 1:
+            raise RuntimeError("复核事件已更新，分析任务将重试")
+        db.refresh(existing)
         db.add(
             RiskEvidence(
                 risk_event_id=existing.id,
@@ -307,7 +326,7 @@ def _record_failure(db: Session, event_id: str, error: Exception) -> AnalysisPro
     event = db.get(OutboxEvent, event_id)
     if event is None:
         return AnalysisProcessOutcome(event_id=event_id, status="missing", error=type(error).__name__)
-    message = f"{type(error).__name__}: {str(error)}"[:500]
+    message = f"{type(error).__name__}: analysis_processing_failed"
     event.status = "failed" if event.attempts >= MAX_ATTEMPTS else "pending"
     event.available_at = utc_now() + timedelta(seconds=min(60 * (2**event.attempts), 900))
     event.locked_at = None
@@ -376,6 +395,17 @@ def process_next_analysis_event(
             source_message_id=source_message_id,
         )
         raw_analysis, usage = analyzer.analyze(turns)
+        session = db.scalar(select(ConversationSession).where(ConversationSession.id == session.id)
+                            .with_for_update().execution_options(populate_existing=True))
+        if session is None:
+            raise RuntimeError("会话已不存在")
+        if not session.save_messages or not session.allow_analysis:
+            event.status = "processed"
+            event.processed_at = utc_now()
+            event.locked_at = None
+            event.last_error = "consent_withdrawn_during_analysis"
+            db.commit()
+            return AnalysisProcessOutcome(event_id=event.id, status="skipped")
         analysis = _validate_output(raw_analysis, len(turns))
         evidence_ids = [message_ids[index] for index in analysis.evidence_turn_indexes]
         analysis_record = ConversationAnalysis(
@@ -451,8 +481,10 @@ def publish_confirmed_analysis_summary(
     if analysis is None:
         return None
 
-    score_by_level = {"green": 82, "yellow": 72, "orange": 60, "red": 45}
-    delta_by_level = {"green": 0, "yellow": -4, "orange": -8, "red": -12}
+    session = db.scalar(select(ConversationSession).where(ConversationSession.id == analysis.session_id).with_for_update())
+    if session is None or not session.allow_analysis:
+        raise PermissionError("老人已停止本次会话的分析授权，不能发布新摘要")
+
     label_by_level = {
         "green": "状态平稳",
         "yellow": "建议温和关怀",
@@ -474,8 +506,8 @@ def publish_confirmed_analysis_summary(
         label=label_by_level.get(risk_event.level, "建议保持关怀"),
         headline="今天适合多一份温和、直接的联系。",
         summary=analysis.family_summary,
-        score=score_by_level.get(risk_event.level, 70),
-        baseline_delta=delta_by_level.get(risk_event.level, -4),
+        score=None,
+        baseline_delta=None,
         topics=topics,
         has_active_emergency=False,
         safety_message=(

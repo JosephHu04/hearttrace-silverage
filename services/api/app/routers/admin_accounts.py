@@ -5,12 +5,16 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import aliased
+from sqlalchemy.exc import IntegrityError
 
-from app.db.models import ElderProfile, FamilyElderGrant, RegistrationApplication, User, utc_now, uuid_string
+from app.core.security import hash_password
+
+from app.db.models import ElderProfile, FamilyElderGrant, OutboxEvent, RegistrationApplication, User, utc_now, uuid_string
 from app.dependencies import AdminActor, DbSession
 from app.schemas import (
     ElderAccountListOut,
     ElderAccountOut,
+    ElderAccountCreate,
     FamilyGrantListOut,
     FamilyGrantOut,
     GrantActionRequest,
@@ -25,6 +29,51 @@ from app.services.notifications import create_notification
 
 
 router = APIRouter(prefix="/admin", tags=["admin-account-approval"])
+
+
+@router.get("/operations/tasks")
+def task_status(db: DbSession, actor: AdminActor):
+    counts = db.execute(select(OutboxEvent.event_type, OutboxEvent.status, func.count()).group_by(OutboxEvent.event_type, OutboxEvent.status)).all()
+    failed = list(db.scalars(select(OutboxEvent).where(OutboxEvent.status == "failed").order_by(OutboxEvent.updated_at.desc()).limit(20)))
+    return {"counts": [{"eventType": kind, "status": state, "count": count} for kind, state, count in counts],
+            "failed": [{"id": item.id, "eventType": item.event_type, "attempts": item.attempts, "updatedAt": item.updated_at} for item in failed]}
+
+
+@router.post("/operations/tasks/{event_id}/retry")
+def retry_task(event_id: str, db: DbSession, actor: AdminActor):
+    result = db.execute(update(OutboxEvent).where(OutboxEvent.id == event_id, OutboxEvent.status == "failed")
+                        .values(status="pending", attempts=0, locked_at=None, available_at=utc_now(), last_error=None, updated_at=utc_now()))
+    if result.rowcount != 1:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="任务不存在或已不处于失败状态，请刷新")
+    add_audit_log(db, actor_id=actor.id, action="task.retry_requested", target_type="outbox_event", target_id=event_id, metadata={})
+    db.commit()
+    return {"status": "pending"}
+
+
+@router.post("/elders", response_model=ElderAccountOut, status_code=201)
+def create_elder_account(body: ElderAccountCreate, db: DbSession, actor: AdminActor) -> ElderAccountOut:
+    identifier = body.login_identifier.strip().lower()
+    name = body.display_name.strip()
+    if len(identifier) < 3 or len(name) < 2:
+        raise HTTPException(status_code=422, detail="姓名或登录账号不能为空")
+    if db.scalar(select(User.id).where(User.login_identifier == identifier)) or db.scalar(
+        select(RegistrationApplication.id).where(RegistrationApplication.login_identifier == identifier)
+    ):
+        raise HTTPException(status_code=409, detail="该登录账号已被使用或正在申请中")
+    elder = User(id=f"elder-{uuid_string()}", display_name=name, role="elder",
+                 login_identifier=identifier, password_hash=hash_password(body.password))
+    try:
+        db.add(elder)
+        db.flush()
+        db.add(ElderProfile(user_id=elder.id, age=body.age))
+        add_audit_log(db, actor_id=actor.id, action="elder.created", target_type="elder",
+                      target_id=elder.id, metadata={"provisionedBy": "admin"})
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="该登录账号已被使用，请刷新后重试") from exc
+    return ElderAccountOut(id=elder.id, display_name=name, age=body.age)
 
 
 def application_out(application: RegistrationApplication) -> RegistrationApplicationOut:
@@ -68,6 +117,15 @@ def review_registration_application(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="注册申请不存在")
     if application.status != RegistrationStatus.pending.value:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="该申请已处理，请刷新列表")
+
+    # Claim the pending review inside the same transaction as account/grant creation.
+    claimed = db.execute(update(RegistrationApplication).where(
+        RegistrationApplication.id == application.id,
+        RegistrationApplication.status == RegistrationStatus.pending.value,
+    ).values(status=body.decision.value).execution_options(synchronize_session=False))
+    if claimed.rowcount != 1:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="该申请已由其他管理员处理，请刷新列表")
 
     if body.decision is RegistrationStatus.approved:
         if body.elder_id is None:

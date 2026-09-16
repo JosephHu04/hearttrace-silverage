@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ApiError, changeFamilyGrant, getAuditLogs, getElderAccounts, getEmergencyQueue, getFamilyGrants, getNotifications, getRegistrationApplications, getRiskDetail, getRiskQueue, markNotificationRead, performEmergencyAction, performRiskAction, reviewRegistrationApplication } from "@/lib/admin-api";
 import { clearAdminSession, readAdminSession } from "@/lib/admin-session";
+import { AccountSetup } from "./account-setup";
 import type { Actor, AuditFilters, AuditListResponse, AuthorizationScope, ElderAccount, EmergencyAction, EmergencyEvent, EmergencyStatus, FamilyGrant, GrantAction, NotificationCategory, NotificationItem, NotificationListResponse, RegistrationApplication, RiskAction, RiskDetail, RiskListItem, RiskStatus } from "@/lib/types";
 
 type AdminView = "risk" | "emergency" | "relationships" | "notifications" | "audit" | "registrations";
@@ -774,6 +775,7 @@ export default function AdminDashboard() {
           </section>
         ) : (
           <section className="registration-panel panel">
+            <AccountSetup token={token} onCreated={async () => { const result = await getElderAccounts(token); setElderAccounts(result.items); }} />
             <div className="panel-heading"><div><p>待审核</p><h2>家属注册申请</h2></div><span>{applications.length} 项</span></div>
             <p className="registration-intro">仅核验申请人身份与关系信息。密码以安全哈希保存，审核人员无法查看。</p>
             {loading && <div className="empty">正在读取申请队列…</div>}

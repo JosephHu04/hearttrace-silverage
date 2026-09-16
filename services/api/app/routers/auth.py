@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 
 from app.core.config import get_settings
 from app.core.security import create_access_token, hash_one_time_token, hash_password, verify_password
@@ -78,7 +79,11 @@ def create_registration_application(body: RegistrationApplicationCreate, db: DbS
         status=RegistrationStatus.pending.value,
     )
     db.add(application)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="该联系方式已提交过申请或已绑定账号") from exc
     db.refresh(application)
     return application_out(application)
 

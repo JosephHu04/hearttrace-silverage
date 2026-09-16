@@ -21,7 +21,7 @@ export function readAdminSession(): AdminSession | null {
     const raw = sessionStorage.getItem(ADMIN_SESSION_KEY);
     if (!raw) return null;
     const value = JSON.parse(raw) as Partial<AdminSession>;
-    if (!value.accessToken || !value.actor?.id || value.actor.role !== "admin" || !value.expiresAt || Date.parse(value.expiresAt) <= Date.now()) {
+    if (!value.accessToken || !value.actor?.id || value.actor.role !== "admin" || !value.expiresAt || !Number.isFinite(Date.parse(value.expiresAt)) || Date.parse(value.expiresAt) <= Date.now()) {
       clearAdminSession();
       return null;
     }

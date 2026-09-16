@@ -24,13 +24,16 @@ export default function SecurityPage() {
   const change = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!token) return;
-    const values = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const values = new FormData(form);
     if (values.get("newPassword") !== values.get("newPasswordConfirm")) { setNotice("两次输入的新密码不一致。"); return; }
     setBusy(true);
     setNotice("");
     try {
       setNotice((await changePassword(token, String(values.get("currentPassword")), String(values.get("newPassword")))).message);
-      event.currentTarget.reset();
+      form.reset();
+      sessionStorage.removeItem("hearttrace.family.session");
+      router.replace("/account");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "修改失败，请稍后重试。");
     } finally {

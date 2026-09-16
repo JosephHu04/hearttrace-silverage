@@ -1,4 +1,9 @@
 from fastapi.testclient import TestClient
+from concurrent.futures import ThreadPoolExecutor
+import pytest
+from sqlalchemy import select, func
+from app.db.models import User
+from app.db.session import engine, SessionLocal
 
 
 def application_payload() -> dict[str, str]:
@@ -60,6 +65,26 @@ def test_approval_requires_admin_to_confirm_the_elder(client: TestClient, admin_
     )
     assert review.status_code == 400
     assert review.json()["detail"] == "通过申请前必须选择已核验的老人账号"
+
+
+@pytest.mark.skipif(engine.dialect.name != "postgresql", reason="Requires independent PostgreSQL connections")
+def test_concurrent_registration_review_creates_only_one_account(client, admin_headers):
+    submitted = client.post("/api/auth/registration-applications", json=application_payload()).json()
+    def approve(_):
+        return client.post(f"/api/admin/registration-applications/{submitted['id']}/review", headers=admin_headers,
+                           json={"decision": "approved", "elderId": "elder-demo-001"}).status_code
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        codes = list(executor.map(approve, range(2)))
+    assert sorted(codes) == [200, 409]
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(User).where(User.login_identifier == "zhao@example.com")) == 1
+
+
+def test_only_admin_can_provision_elder_and_duplicate_identifier_is_rejected(client, admin_headers, family_headers):
+    payload = {"displayName": "新老人", "age": 80, "loginIdentifier": "newelder@example.test", "password": "NewElderPass2026!"}
+    assert client.post("/api/admin/elders", headers=family_headers, json=payload).status_code == 403
+    assert client.post("/api/admin/elders", headers=admin_headers, json=payload).status_code == 201
+    assert client.post("/api/admin/elders", headers=admin_headers, json=payload).status_code == 409
 
 
 def test_approved_family_can_change_password_and_recovery_request_is_non_enumerating(client: TestClient, admin_headers: dict[str, str]):

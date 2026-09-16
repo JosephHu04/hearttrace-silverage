@@ -26,6 +26,11 @@ body {
 }
 
 button, textarea { font: inherit; }
+.elder-login { max-width: 680px; }
+.elder-login form { display: grid; gap: 24px; }
+.elder-login label { display: grid; gap: 10px; font-size: 1.5rem; }
+.elder-login input { width: 100%; min-height: 60px; padding: 12px; border: 2px solid var(--line); border-radius: 12px; font: inherit; }
+.elder-login button { min-height: 66px; border: 0; border-radius: 12px; background: var(--focus); color: white; font-size: 1.6rem; }
 button { cursor: pointer; }
 button:focus-visible, textarea:focus-visible, a:focus-visible {
   outline: 4px solid var(--focus);

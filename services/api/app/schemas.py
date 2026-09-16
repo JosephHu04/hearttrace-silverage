@@ -140,6 +140,13 @@ class ElderAccountOut(ApiModel):
     age: int
 
 
+class ElderAccountCreate(ApiModel):
+    display_name: str = Field(min_length=2, max_length=100)
+    login_identifier: str = Field(min_length=3, max_length=120)
+    password: str = Field(min_length=10, max_length=128)
+    age: int = Field(ge=0, le=120)
+
+
 class ElderAccountListOut(ApiModel):
     items: list[ElderAccountOut]
 
@@ -319,12 +326,15 @@ class FamilyElderListOut(ApiModel):
 
 
 class FamilyStatusOut(ApiModel):
-    level: RiskLevel
+    level: Optional[RiskLevel]
     label: str
     headline: str
     summary: str
-    score: int
-    baseline_delta: int
+    score: Optional[int] = None
+    baseline_delta: Optional[int] = None
+    summary_state: str = "ready"
+    generated_at: Optional[datetime] = None
+    score_source: str = "unavailable"
 
 
 class FamilyTopicOut(ApiModel):
@@ -381,7 +391,7 @@ class FamilyActionResult(ApiModel):
 
 class FamilyTrendPointOut(ApiModel):
     recorded_at: datetime
-    score: int
+    score: Optional[int] = None
     level: RiskLevel
     label: str
 

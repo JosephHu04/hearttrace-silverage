@@ -374,12 +374,15 @@ function NotificationView({ notifications, loading, busyId, canOpenCare, onRefre
   </Card>;
 }
 
+function summaryStateLabel(today: FamilyToday) {
+  return { empty: "尚无摘要", pending_analysis: "等待分析", pending_review: "等待人工复核", analysis_failed: "分析暂未完成，请联系工作人员", analysis_stopped: "分析授权已撤回", ready: "今日已发布", historical: "历史最新摘要" }[today.status.summaryState] ?? "尚无摘要";
+}
+
 function TodayView({ today, action, onAction, onNavigate }: { today: FamilyToday; action: string; onAction: (action: FamilyAction, label: string) => Promise<void>; onNavigate: () => void }) {
-  const baselineDescription = today.status.baselineDelta < 0 ? `下降 ${Math.abs(today.status.baselineDelta)} 分` : today.status.baselineDelta > 0 ? `上升 ${today.status.baselineDelta} 分` : "持平";
 
   return <div className="page-grid today-grid">
     <Card className="hero-card">
-      <div className="eyebrow">今日状态 <Tag tone="warm">{today.status.label}</Tag></div>
+      <div className="eyebrow">{summaryStateLabel(today)} <Tag tone="warm">{today.status.label}</Tag></div>
       <h2>{today.status.headline}</h2>
       <p>{today.status.summary}</p>
       <div className="hero-actions"><button className="primary" disabled={!today.access.careActionsAllowed || !today.riskEventId} onClick={() => { void onAction("contacted", "已电话联系"); }}>我已联系</button><button className="secondary" disabled={!today.access.careActionsAllowed || !today.riskEventId} onClick={() => { void onAction("video_planned", "计划晚间视频联络"); }}>安排视频联络</button></div>
@@ -387,12 +390,11 @@ function TodayView({ today, action, onAction, onNavigate }: { today: FamilyToday
     </Card>
 
     <Card className="score-card">
-      <p className="muted">今日关怀指数</p><div className="score-row"><strong>{today.status.score}</strong><span>/ 100</span></div>
-      <div className="meter"><i style={{ width: `${today.status.score}%` }} /></div><p className="score-caption">较个人近 7 天基线 <b>{baselineDescription}</b></p>
+      <p className="muted">摘要进度</p><h3>{summaryStateLabel(today)}</h3><p>{today.status.generatedAt ? `发布时间：${formatDateTime(today.status.generatedAt)}` : "发布后会在这里显示时间"}</p><p className="score-caption">尚无有效的标准化测评分数；聊天摘要不换算为心理健康分数。</p>
     </Card>
 
     <Card className="summary-card">
-      <div className="card-heading"><div><p className="muted">今日摘要</p><h3>今日授权主题</h3></div><button className="text-button" onClick={onNavigate}>查看报告 →</button></div>
+      <div className="card-heading"><div><p className="muted">{summaryStateLabel(today)}</p><h3>已发布的授权主题</h3></div><button className="text-button" onClick={onNavigate}>查看报告 →</button></div>
       <div className="topic-list">{today.topics.map((topic) => <div key={topic.name}><span className={`topic-dot ${topic.tone}`} />{topic.name} <b>{topic.note}</b></div>)}</div>
     </Card>
 
@@ -405,15 +407,15 @@ function TodayView({ today, action, onAction, onNavigate }: { today: FamilyToday
 
 function ReportView({ today }: { today: FamilyToday }) {
   return <div className="page-grid report-grid">
-    <Card className="report-head"><div><Tag tone="calm">今日</Tag><h2>{today.status.headline}</h2><p>{today.status.summary} 这是一份辅助关怀摘要，不是心理疾病诊断。</p></div><div className="report-score"><span>关怀指数</span><strong>{today.status.score}</strong><small>个人基线对比</small></div></Card>
+    <Card className="report-head"><div><Tag tone="calm">{summaryStateLabel(today)}</Tag><h2>{today.status.headline}</h2><p>{today.status.summary} 这是一份辅助关怀摘要，不是心理疾病诊断。</p></div><div className="report-score"><span>发布时间</span><small>{today.status.generatedAt ? formatDateTime(today.status.generatedAt) : "等待发布"}</small></div></Card>
     <Card><p className="muted">授权主题</p><h3>今天值得留意的事</h3><ul className="clean-list">{today.topics.map((topic) => <li key={topic.name}>{topic.name}：{topic.note}</li>)}</ul></Card>
     <Card><p className="muted">关怀建议</p><h3>从倾听开始</h3><ol className="number-list"><li>先问睡眠，不急着给建议。</li><li>邀请她决定视频通话时间。</li><li>若低落持续，建议完成一次标准筛查。</li></ol></Card>
-    <Card className="evidence-card"><div className="card-heading"><div><p className="muted">可追溯线索</p><h3>仅展示授权后的结构化摘要</h3></div><Tag tone="safe">授权有效</Tag></div><div className="evidence-row"><span>主题</span><b>{today.topics[0]?.name ?? "暂无"}</b><em>{today.topics[0]?.note ?? "暂无摘要"}</em></div><div className="evidence-row"><span>趋势</span><b>较个人基线 {today.status.baselineDelta >= 0 ? "+" : ""}{today.status.baselineDelta} 分</b><em>仅作关怀参考</em></div></Card>
+    <Card className="evidence-card"><div className="card-heading"><div><p className="muted">可追溯线索</p><h3>仅展示授权后的结构化摘要</h3></div><Tag tone="safe">授权有效</Tag></div><div className="evidence-row"><span>主题</span><b>{today.topics[0]?.name ?? "暂无"}</b><em>{today.topics[0]?.note ?? "暂无摘要"}</em></div><div className="evidence-row"><span>测评</span><b>尚无标准化得分</b><em>摘要不能替代量表</em></div></Card>
   </div>;
 }
 
 function TrendView({ today, trend, selectedDays, onSelectDays }: { today: FamilyToday; trend: FamilyTrend | null; selectedDays: 7 | 30; onSelectDays: (days: 7 | 30) => void }) {
-  const points = trend?.items ?? [];
+  const points = (trend?.items ?? []).flatMap((item) => typeof item.score === "number" ? [{ ...item, score: item.score }] : []);
   const chartPoints = points.map((item, index) => {
     const x = points.length === 1 ? 220 : (440 / (points.length - 1)) * index;
     const y = 108 - (Math.max(0, Math.min(100, item.score)) * 0.9);
@@ -421,9 +423,9 @@ function TrendView({ today, trend, selectedDays, onSelectDays }: { today: Family
   }).join(" ");
   const dateLabel = (value: string) => new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric" }).format(new Date(value));
   return <div className="page-grid trend-grid">
-    <Card className="trend-card"><div className="card-heading"><div><p className="muted">近 {selectedDays} 天</p><h2>只与{today.elder.name}自己的基线比较</h2></div><div className="segmented"><button className={selectedDays === 7 ? "selected" : ""} onClick={() => onSelectDays(7)}>7 天</button><button className={selectedDays === 30 ? "selected" : ""} onClick={() => onSelectDays(30)}>30 天</button></div></div>{points.length === 0 ? <div className="empty-chart"><b>暂无足够的趋势记录</b><span>后续经人工确认的每日摘要会在这里按天展示。</span></div> : <><div className="chart-wrap"><div className="chart-y"><span>100</span><span>75</span><span>50</span><span>25</span></div><svg viewBox="0 0 450 120" role="img" aria-label={`近${selectedDays}天关怀趋势图`}><defs><linearGradient id="fill" x1="0" x2="0" y1="0" y2="1"><stop stopColor="#c9c6f4" stopOpacity=".55"/><stop offset="1" stopColor="#c9c6f4" stopOpacity="0"/></linearGradient></defs>{points.length > 1 && <path d={`M0,120 L${chartPoints} L440,120 Z`} fill="url(#fill)"/>}<polyline points={chartPoints} fill="none" stroke="#6f6ab5" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>{chartPoints.split(" ").map((point, index) => { const [cx, cy] = point.split(","); return <circle key={`${points[index].recordedAt}-${point}`} cx={cx} cy={cy} r="4" fill="#fff" stroke="#6f6ab5" strokeWidth="2"><title>{`${dateLabel(points[index].recordedAt)} · ${points[index].score} 分 · ${points[index].label}`}</title></circle>; })}</svg></div><div className="chart-labels">{points.map((item) => <span key={item.recordedAt}>{dateLabel(item.recordedAt)}</span>)}</div></>}</Card>
-    <Card className="baseline-card"><p className="muted">趋势说明</p><h3>今天较个人基线 {today.status.baselineDelta >= 0 ? `高 ${today.status.baselineDelta}` : `低 ${Math.abs(today.status.baselineDelta)}`} 分</h3><p>变化仅用于安排关怀节奏，不直接推断疾病。</p><Tag tone={today.status.level === "green" ? "safe" : "warm"}>{today.status.label}</Tag></Card>
-    <Card className="screening-card"><p className="muted">标准化筛查</p><h3>最近一次：尚未完成</h3><p>如本人愿意，可由老人端完成固定题目的自评量表；结果仅作为进一步关怀的参考。</p><button className="secondary">查看授权说明</button></Card>
+    <Card className="trend-card"><div className="card-heading"><div><p className="muted">近 {selectedDays} 天</p><h2>{today.elder.name}的关怀记录</h2></div><div className="segmented"><button className={selectedDays === 7 ? "selected" : ""} onClick={() => onSelectDays(7)}>7 天</button><button className={selectedDays === 30 ? "selected" : ""} onClick={() => onSelectDays(30)}>30 天</button></div></div>{points.length === 0 ? <div className="empty-chart"><b>暂无有效的标准化评分</b><span>目前可查看已发布摘要的时间与关怀状态，不绘制推算分数。</span></div> : <><div className="chart-wrap"><div className="chart-y"><span>100</span><span>75</span><span>50</span><span>25</span></div><svg viewBox="0 0 450 120" role="img" aria-label={`近${selectedDays}天关怀趋势图`}><defs><linearGradient id="fill" x1="0" x2="0" y1="0" y2="1"><stop stopColor="#c9c6f4" stopOpacity=".55"/><stop offset="1" stopColor="#c9c6f4" stopOpacity="0"/></linearGradient></defs>{points.length > 1 && <path d={`M0,120 L${chartPoints} L440,120 Z`} fill="url(#fill)"/>}<polyline points={chartPoints} fill="none" stroke="#6f6ab5" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>{chartPoints.split(" ").map((point, index) => { const [cx, cy] = point.split(","); return <circle key={`${points[index].recordedAt}-${point}`} cx={cx} cy={cy} r="4" fill="#fff" stroke="#6f6ab5" strokeWidth="2"><title>{`${dateLabel(points[index].recordedAt)} · ${points[index].score} 分 · ${points[index].label}`}</title></circle>; })}</svg></div><div className="chart-labels">{points.map((item) => <span key={item.recordedAt}>{dateLabel(item.recordedAt)}</span>)}</div></>}</Card>
+    <Card className="baseline-card"><p className="muted">已发布摘要记录</p><h3>按时间查看关怀状态</h3>{trend?.items.length ? <ul>{trend.items.map((item) => <li key={item.recordedAt}>{dateLabel(item.recordedAt)} · {item.label}</li>)}</ul> : <p>目前没有已发布的摘要。</p>}<Tag tone={today.status.level === "green" ? "safe" : "warm"}>{today.status.label}</Tag></Card>
+    <Card className="screening-card"><p className="muted">标准化筛查</p><h3>量表功能尚未开放</h3><p>当前只展示授权关怀摘要，没有标准化测评分数，也不计算个人分数基线。</p></Card>
   </div>;
 }
 
@@ -436,10 +438,10 @@ function formatDateTime(value: string) {
 }
 
 function RiskView({ today, action, onAction }: { today: FamilyToday; action: string; onAction: (action: FamilyAction, label: string) => Promise<void> }) {
-  const levelLabel = { green: "绿色 · 状态平稳", yellow: "黄色 · 待观察", orange: "橙色 · 需要关注", red: "红色 · 紧急" }[today.status.level];
-  const urgency = { green: "低", yellow: "低", orange: "中", red: "高" }[today.status.level];
+  const levelLabel = today.safety.hasActiveEmergency ? "有求助正在处理" : today.status.level ? { green: "绿色 · 状态平稳", yellow: "黄色 · 待观察", orange: "橙色 · 需要关注", red: "红色 · 紧急" }[today.status.level] : "尚无评估结果";
+  const urgency = today.safety.hasActiveEmergency ? "高" : today.status.level ? { green: "低", yellow: "低", orange: "中", red: "高" }[today.status.level] : "待确认";
   return <div className="page-grid risk-grid">
-    <Card className="risk-overview"><div><Tag tone={today.status.level === "red" ? "alert" : today.status.level === "green" ? "safe" : "warm"}>{levelLabel}</Tag><h2>{today.safety.message}</h2><p>系统提示以温和联系为主。若出现一键呼救、确认跌倒或明确生命安全危机，系统将升级为红色事件。</p></div><div className="risk-ring"><b>{urgency}</b><span>紧急程度</span></div></Card>
+    <Card className="risk-overview"><div><Tag tone={today.status.level === "red" ? "alert" : today.status.level === "green" ? "safe" : "warm"}>{levelLabel}</Tag><h2>{today.safety.message}</h2><p>已上报的求助会单独进入人工处置流程；没有求助记录不代表已经确认安全。</p></div><div className="risk-ring"><b>{urgency}</b><span>紧急程度</span></div></Card>
     <Card className="action-card"><p className="muted">本次待办</p><h3>完成一项关怀行动</h3><button className="primary full" disabled={!today.access.careActionsAllowed || !today.riskEventId} onClick={() => { void onAction("contacted", "已电话联系"); }}>记录已联系</button><button className="secondary full" disabled={!today.access.careActionsAllowed || !today.riskEventId} onClick={() => { void onAction("referral_requested", "申请专业转介"); }}>申请专业转介</button><small>{today.access.careActionsAllowed ? action : "当前授权仅允许查看摘要，不能提交关怀行动。"}</small></Card>
     <Card className="event-card"><div className="card-heading"><div><p className="muted">安全事件</p><h3>一键呼救与设备事件</h3></div><Tag tone={today.safety.hasActiveEmergency ? "alert" : "safe"}>{today.safety.hasActiveEmergency ? "处理中" : "暂无事件"}</Tag></div><p>{today.safety.message}</p>{today.safety.hasActiveEmergency && <div className="event-meta"><span>{today.safety.source === "device_button" ? "设备实体求助键" : "老人端一键呼救"}</span>{today.safety.triggeredAt && <span>发起于 {formatDateTime(today.safety.triggeredAt)}</span>}</div>}<small>家属端只显示事件状态和必要说明；不默认开放摄像头画面或日常视频。</small></Card>
   </div>;

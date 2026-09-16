@@ -1,13 +1,13 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 
 // All three clients configure the API origin. Accept the older /api suffix too.
 const API_ORIGIN = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000")
   .replace(/\/api\/?$/, "")
   .replace(/\/$/, "");
 const API_BASE = `${API_ORIGIN}/api`;
-const DEMO_ACTOR = process.env.NEXT_PUBLIC_ELDER_DEMO_ACTOR_ID ?? "elder-demo-001";
 
 type ActivePanel = "home" | "chat" | "time" | "weather" | "news";
 type ConsentMode = "private" | "care";
@@ -45,6 +45,12 @@ function displayTime(date: Date): string {
 }
 
 export default function ElderCompanionPage() {
+  const router = useRouter();
+  const [accessToken, setAccessToken] = useState("");
+  const [elderName, setElderName] = useState("");
+  const sessionIdRef = useRef("");
+  const emergencyRequestIdRef = useRef<string | null>(null);
+  const [connectionAttempt, setConnectionAttempt] = useState(0);
   const [activePanel, setActivePanel] = useState<ActivePanel>("home");
   const [consentMode, setConsentMode] = useState<ConsentMode | null>(null);
   const [now, setNow] = useState<Date | null>(null);
@@ -63,6 +69,27 @@ export default function ElderCompanionPage() {
   const tokenRef = useRef("");
   const assistantIdRef = useRef<string | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    try {
+      const session = JSON.parse(sessionStorage.getItem("hearttrace.elder.session") ?? "null");
+      if (!session?.accessToken || session.actor?.role !== "elder" || !Number.isFinite(Date.parse(session.expiresAt)) || Date.parse(session.expiresAt) <= Date.now()) throw new Error("expired");
+      setAccessToken(session.accessToken);
+      tokenRef.current = session.accessToken;
+      setElderName(session.actor.displayName);
+    } catch {
+      sessionStorage.removeItem("hearttrace.elder.session");
+      router.replace("/account");
+    }
+  }, [router]);
+
+  function logout() {
+    socketRef.current?.close();
+    sessionStorage.removeItem("hearttrace.elder.session");
+    setAccessToken("");
+    tokenRef.current = "";
+    router.replace("/account");
+  }
 
   const authorizedFetch = useCallback(async (path: string) => {
     const response = await fetch(`${API_BASE}${path}`, {
@@ -101,25 +128,18 @@ export default function ElderCompanionPage() {
   }, [activePanel, messages, busy]);
 
   useEffect(() => {
-    if (!consentMode) return;
+    if (!consentMode || !accessToken) return;
     let cancelled = false;
     let socket: WebSocket | null = null;
 
     async function connect() {
       try {
-        const loginResponse = await fetch(`${API_BASE}/auth/demo-login`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ actorId: DEMO_ACTOR })
-        });
-        const login = await loginResponse.json();
-        if (!loginResponse.ok) throw new Error(login.detail ?? "演示账号登录失败");
-        tokenRef.current = login.accessToken;
-
-        const sessionResponse = await fetch(`${API_BASE}/conversations/sessions`, {
+        let session = { id: sessionIdRef.current };
+        if (!session.id) {
+          const sessionResponse = await fetch(`${API_BASE}/conversations/sessions`, {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${login.accessToken}`,
+            Authorization: `Bearer ${accessToken}`,
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
@@ -127,16 +147,25 @@ export default function ElderCompanionPage() {
             allowAnalysis: consentMode === "care"
           })
         });
-        const session = await sessionResponse.json();
-        if (!sessionResponse.ok) throw new Error(session.detail ?? "无法创建会话");
+          const result = await sessionResponse.json();
+          if (sessionResponse.status === 401) {
+            sessionStorage.removeItem("hearttrace.elder.session");
+            setAccessToken("");
+            router.replace("/account");
+            return;
+          }
+          if (!sessionResponse.ok) throw new Error(result.detail ?? "无法创建会话");
+          session = result;
+        }
         if (cancelled) return;
+        sessionIdRef.current = session.id;
 
         socket = new WebSocket(websocketEndpoint());
         socketRef.current = socket;
         socket.onopen = () => {
           socket?.send(JSON.stringify({
             type: "authenticate",
-            accessToken: login.accessToken,
+            accessToken,
             sessionId: session.id
           }));
         };
@@ -174,10 +203,16 @@ export default function ElderCompanionPage() {
             setBusy(false);
           }
         };
-        socket.onclose = () => {
+        socket.onclose = (event) => {
           if (!cancelled) {
+            if (event.code === 4401) {
+              sessionStorage.removeItem("hearttrace.elder.session");
+              setAccessToken("");
+              router.replace("/account");
+            }
             setStatus("暂时离线");
             setBusy(false);
+            assistantIdRef.current = null;
           }
         };
         socket.onerror = () => setStatus("连接不稳");
@@ -191,7 +226,7 @@ export default function ElderCompanionPage() {
       cancelled = true;
       socket?.close();
     };
-  }, [consentMode, loadNews, loadWeather]);
+  }, [accessToken, consentMode, connectionAttempt, loadNews, loadWeather, router]);
 
   function sendMessage(event: FormEvent) {
     event.preventDefault();
@@ -221,7 +256,7 @@ export default function ElderCompanionPage() {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          requestId: `elder-sos-${crypto.randomUUID()}`,
+          requestId: emergencyRequestIdRef.current ?? (emergencyRequestIdRef.current = `elder-sos-${crypto.randomUUID()}`),
           source: "elder_button",
           note: "老人通过触控端主动发出求助"
         })
@@ -229,6 +264,7 @@ export default function ElderCompanionPage() {
       const result = await response.json().catch(() => ({})) as { detail?: string };
       if (!response.ok) throw new Error(result.detail ?? "求助暂时未发送成功");
       setEmergencyState("sent");
+      emergencyRequestIdRef.current = null;
       setEmergencyMessage("求助已经发出，家属和工作人员会收到提醒。请留在安全的位置等待联系。");
     } catch (error) {
       setEmergencyState("error");
@@ -236,10 +272,19 @@ export default function ElderCompanionPage() {
     }
   }
 
-  function resetConversationConsent() {
+  async function resetConversationConsent() {
+    if (sessionIdRef.current) {
+      try {
+        const response = await fetch(`${API_BASE}/conversations/sessions/${sessionIdRef.current}/revoke-analysis`, { method: "POST", headers: { Authorization: `Bearer ${tokenRef.current}` } });
+        if (!response.ok) throw new Error("暂时无法停止保存与分析，请稍后重试");
+      } catch (cause) {
+        setStatus(cause instanceof Error ? cause.message : "操作未完成");
+        return;
+      }
+      sessionIdRef.current = "";
+    }
     socketRef.current?.close();
     socketRef.current = null;
-    tokenRef.current = "";
     assistantIdRef.current = null;
     setConsentMode(null);
     setActivePanel("home");
@@ -254,10 +299,13 @@ export default function ElderCompanionPage() {
   const dateText = now ? new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "long", day: "numeric", weekday: "long" }).format(now) : "正在读取日期";
   const dayPeriod = !now ? "" : now.getHours() < 6 ? "凌晨" : now.getHours() < 12 ? "上午" : now.getHours() < 18 ? "下午" : "晚上";
 
+  if (!accessToken) return <main className="consent-shell">正在确认登录状态…</main>;
+
   if (!consentMode) {
     return <main className="consent-shell">
       <section className="consent-card" aria-labelledby="consent-title">
         <p className="consent-brand">心迹银龄 · 遥遥</p>
+        <button type="button" onClick={logout}>退出账号</button>
         <h1 id="consent-title">今天想怎样聊？</h1>
         <p className="consent-intro">请您自己选择。无论选哪一种，都可以正常聊天。</p>
         <div className="consent-options">
@@ -270,7 +318,7 @@ export default function ElderCompanionPage() {
             <span>保存本次聊天并用于健康关怀分析；家属看不到聊天全文，只有工作人员确认后的简短摘要</span>
           </button>
         </div>
-        <small>这不是疾病诊断。您可以返回这里为后续新会话重新选择；已经保存的会话不会因此自动删除。</small>
+        <small>这不是疾病诊断。您可以随时停止本次会话后续的保存与分析；已保存内容和已发布摘要不会自动删除。</small>
       </section>
     </main>;
   }
@@ -279,8 +327,8 @@ export default function ElderCompanionPage() {
     <main className="app-shell">
       <header className="topbar">
         <button className="brand" type="button" onClick={() => setActivePanel("home")}>遥遥</button>
-        <p className="welcome">王阿姨，{dayPeriod ? `${dayPeriod}好` : "您好"}</p>
-        <div className="service-state"><span>{status}</span><small>{consentMode === "care" ? "已同意生成关怀摘要" : "本次对话不保存"}</small><button type="button" onClick={resetConversationConsent}>更改隐私选择</button></div>
+        <p className="welcome">{elderName}，{dayPeriod ? `${dayPeriod}好` : "您好"}</p>
+        <div className="service-state"><span>{status}</span>{(status === "暂时离线" || status === "连接不稳") && <button type="button" onClick={() => { setStatus("正在连接"); setConnectionAttempt((value) => value + 1); }}>重新连接</button>}<small>{consentMode === "care" ? "已同意生成关怀摘要" : "本次对话不保存"}</small><button type="button" onClick={() => { void resetConversationConsent(); }}>停止保存与分析 / 重新选择</button><button type="button" onClick={logout}>退出</button></div>
       </header>
 
       {activePanel === "home" && (

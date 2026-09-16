@@ -74,6 +74,18 @@ def _owned_session(db: DbSession, session_id: str, elder: User) -> ConversationS
     return session
 
 
+@router.post("/conversations/sessions/{session_id}/revoke-analysis", response_model=ConversationSessionOut)
+def revoke_analysis(session_id: str, db: DbSession, elder: ElderActor) -> ConversationSessionOut:
+    session = _owned_session(db, session_id, elder)
+    session.allow_analysis = False
+    session.save_messages = False
+    db.add(AuditLog(actor_id=elder.id, action="conversation.consent_revoked",
+                    target_type="conversation_session", target_id=session.id,
+                    metadata_json={"saveMessages": False, "allowAnalysis": False}))
+    db.commit()
+    return _session_out(session)
+
+
 @router.get(
     "/conversations/sessions/{session_id}/messages",
     response_model=list[ConversationMessageOut],
@@ -244,6 +256,15 @@ async def realtime_conversation(websocket: WebSocket) -> None:
 
         while True:
             incoming = await websocket.receive_json()
+            with SessionLocal() as db:
+                try:
+                    resolve_actor_from_token(token, db)
+                except HTTPException:
+                    await _reject(websocket, code=4401, message="登录已失效，请重新登录")
+                    return
+            if not isinstance(incoming, dict):
+                await websocket.send_json({"type": "error", "message": "消息格式不正确"})
+                continue
             if incoming.get("type") == "ping":
                 await websocket.send_json({"type": "pong"})
                 continue
