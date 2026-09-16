@@ -355,6 +355,6 @@ class AuditLog(Base):
     actor_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
     action: Mapped[str] = mapped_column(String(64), index=True)
     target_type: Mapped[str] = mapped_column(String(32))
-    target_id: Mapped[str] = mapped_column(String(64))
+    target_id: Mapped[str] = mapped_column(String(160))
     metadata_json: Mapped[dict[str, object]] = mapped_column("metadata", JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
