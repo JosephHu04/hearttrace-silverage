@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 // All three clients configure the API origin. Accept the older /api suffix too.
 const API_ORIGIN = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000")
@@ -306,6 +307,7 @@ export default function ElderCompanionPage() {
       <section className="consent-card" aria-labelledby="consent-title">
         <p className="consent-brand">心迹银龄 · 遥遥</p>
         <button type="button" onClick={logout}>退出账号</button>
+        <Link href="/account/security">修改密码</Link>
         <h1 id="consent-title">今天想怎样聊？</h1>
         <p className="consent-intro">请您自己选择。无论选哪一种，都可以正常聊天。</p>
         <div className="consent-options">
@@ -328,7 +330,7 @@ export default function ElderCompanionPage() {
       <header className="topbar">
         <button className="brand" type="button" onClick={() => setActivePanel("home")}>遥遥</button>
         <p className="welcome">{elderName}，{dayPeriod ? `${dayPeriod}好` : "您好"}</p>
-        <div className="service-state"><span>{status}</span>{(status === "暂时离线" || status === "连接不稳") && <button type="button" onClick={() => { setStatus("正在连接"); setConnectionAttempt((value) => value + 1); }}>重新连接</button>}<small>{consentMode === "care" ? "已同意生成关怀摘要" : "本次对话不保存"}</small><button type="button" onClick={() => { void resetConversationConsent(); }}>停止保存与分析 / 重新选择</button><button type="button" onClick={logout}>退出</button></div>
+        <div className="service-state"><span>{status}</span>{(status === "暂时离线" || status === "连接不稳") && <button type="button" onClick={() => { setStatus("正在连接"); setConnectionAttempt((value) => value + 1); }}>重新连接</button>}<small>{consentMode === "care" ? "已同意生成关怀摘要" : "本次对话不保存"}</small><button type="button" onClick={() => { void resetConversationConsent(); }}>停止保存与分析 / 重新选择</button><Link href="/account/security">修改密码</Link><button type="button" onClick={logout}>退出</button></div>
       </header>
 
       {activePanel === "home" && (

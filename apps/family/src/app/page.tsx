@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ApiError, completeFamilyCarePlanItem, createFamilyCarePlanItem, getFamilyCarePlan, getFamilyElders, getFamilyToday, getFamilyTrend, getNotifications, markNotificationRead, recordFamilyAction } from "@/lib/family-api";
 import type { FamilyAction, FamilyCarePlanItem, FamilyElder, FamilyToday, FamilyTrend, NotificationCategory, NotificationItem, NotificationList } from "@/lib/types";
@@ -62,6 +62,9 @@ export default function FamilyDashboard() {
   const [notifications, setNotifications] = useState<NotificationList>({ items: [], unreadCount: 0, page: 1, perPage: 25, total: 0 });
   const [notificationLoading, setNotificationLoading] = useState(false);
   const [notificationBusy, setNotificationBusy] = useState<string | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
+  const actionInFlight = useRef(false);
+  const pendingActions = useRef(new Map<string, { requestId: string; riskEventId: string | null }>());
 
   useEffect(() => {
     setGreeting(new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "long" }).format(new Date()));
@@ -246,20 +249,41 @@ export default function FamilyDashboard() {
   };
 
   const recordAction = async (nextAction: FamilyAction, label: string) => {
+    if (actionInFlight.current) return;
+    if (!token || !today || !today.access.careActionsAllowed) {
+      setNotice("当前登录或关怀授权不可用，请重新确认授权。");
+      return;
+    }
+    const elderId = today.elder.id;
+    const key = `${elderId}:${nextAction}`;
+    const pending = pendingActions.current.get(key) ?? { requestId: crypto.randomUUID(), riskEventId: today.riskEventId };
+    pendingActions.current.set(key, pending);
+    actionInFlight.current = true;
+    setActionBusy(true);
     try {
-      if (!token || !today) throw new Error("当前登录或摘要不可用");
-      if (!today.riskEventId) throw new Error("当前没有可关联的风险事件");
-      if (!today.access.careActionsAllowed) throw new Error("当前授权不包含关怀行动");
-      const recorded = await recordFamilyAction(token, today.riskEventId, nextAction);
+      const recorded = await recordFamilyAction(token, elderId, pending.riskEventId, nextAction, pending.requestId);
+      pendingActions.current.delete(key);
       setAction(`已记录：${label}`);
-      setToday((current) => current ? ({
+      setToday((current) => current?.elder.id === elderId ? ({
         ...current,
-        recentActions: [{ action: nextAction, recordedAt: recorded.recordedAt }, ...current.recentActions].slice(0, 5)
+        recentActions: [{ action: nextAction, recordedAt: recorded.recordedAt }, ...current.recentActions.filter((item) => item.action !== nextAction || item.recordedAt !== recorded.recordedAt)].slice(0, 5)
       }) : current);
       setNotice(`关怀行动“${label}”已提交。该记录会进入家属端的后续审计与跟进流程。`);
-    } catch {
+    } catch (error) {
       setAction(`待同步：${label}`);
-      setNotice("行动暂未同步到服务端，请在网络恢复后重试。演示数据没有被视为正式记录。");
+      if (error instanceof ApiError && error.status === 401) {
+        sessionStorage.removeItem("hearttrace.family.session");
+        router.replace("/account");
+      } else if (error instanceof ApiError && error.status >= 400 && error.status < 500) {
+        pendingActions.current.delete(key);
+        setNotice(error.message);
+        if (error.status === 403) setApiState("denied");
+      } else {
+        setNotice("行动同步结果尚未确认，请重试；系统会避免重复保存同一次操作。");
+      }
+    } finally {
+      actionInFlight.current = false;
+      setActionBusy(false);
     }
   };
 
@@ -340,11 +364,11 @@ export default function FamilyDashboard() {
           <Card className="access-denied"><Tag tone="alert">{apiState === "signed_out" ? "需要登录" : apiState === "denied" ? "暂未授权" : "服务不可用"}</Tag><h2>{apiState === "signed_out" ? "登录后才能查看关怀信息" : apiState === "denied" ? "当前账号暂未获得老人授权" : "暂时无法读取关怀数据"}</h2><p>{apiState === "signed_out" ? "仅已获管理端批准的家属账号可登录。" : "为保护老人隐私，页面不会在异常状态下展示任何模拟或缓存的老人数据。"}</p>{apiState === "signed_out" && <a className="primary" href="/account">前往登录</a>}</Card>
         ) : (
           <>
-            {page === "today" && <TodayView today={today} action={action} onAction={recordAction} onNavigate={() => setPage("report")} />}
+            {page === "today" && <TodayView busy={actionBusy} today={today} action={action} onAction={recordAction} onNavigate={() => setPage("report")} />}
             {page === "report" && <ReportView today={today} />}
             {page === "trend" && <TrendView today={today} trend={trend} selectedDays={trendDays} onSelectDays={setTrendDays} />}
-            {page === "risk" && <RiskView today={today} action={action} onAction={recordAction} />}
-            {page === "plan" && <PlanView today={today} items={carePlan} onAction={recordAction} onAddItem={addCarePlan} onCompleteItem={completeCarePlan} />}
+            {page === "risk" && <RiskView busy={actionBusy} today={today} action={action} onAction={recordAction} />}
+            {page === "plan" && <PlanView busy={actionBusy} today={today} items={carePlan} onAction={recordAction} onAddItem={addCarePlan} onCompleteItem={completeCarePlan} />}
             {page === "privacy" && <PrivacyView today={today} />}
           </>
         )}
@@ -378,14 +402,14 @@ function summaryStateLabel(today: FamilyToday) {
   return { empty: "尚无摘要", pending_analysis: "等待分析", pending_review: "等待人工复核", analysis_failed: "分析暂未完成，请联系工作人员", analysis_stopped: "分析授权已撤回", ready: "今日已发布", historical: "历史最新摘要" }[today.status.summaryState] ?? "尚无摘要";
 }
 
-function TodayView({ today, action, onAction, onNavigate }: { today: FamilyToday; action: string; onAction: (action: FamilyAction, label: string) => Promise<void>; onNavigate: () => void }) {
+function TodayView({ busy, today, action, onAction, onNavigate }: { busy: boolean; today: FamilyToday; action: string; onAction: (action: FamilyAction, label: string) => Promise<void>; onNavigate: () => void }) {
 
   return <div className="page-grid today-grid">
     <Card className="hero-card">
       <div className="eyebrow">{summaryStateLabel(today)} <Tag tone="warm">{today.status.label}</Tag></div>
       <h2>{today.status.headline}</h2>
       <p>{today.status.summary}</p>
-      <div className="hero-actions"><button className="primary" disabled={!today.access.careActionsAllowed || !today.riskEventId} onClick={() => { void onAction("contacted", "已电话联系"); }}>我已联系</button><button className="secondary" disabled={!today.access.careActionsAllowed || !today.riskEventId} onClick={() => { void onAction("video_planned", "计划晚间视频联络"); }}>安排视频联络</button></div>
+      <div className="hero-actions"><button className="primary" disabled={busy || !today.access.careActionsAllowed} onClick={() => { void onAction("contacted", "已电话联系"); }}>我已联系</button><button className="secondary" disabled={busy || !today.access.careActionsAllowed} onClick={() => { void onAction("video_planned", "计划晚间视频联络"); }}>安排视频联络</button></div>
       <small>{action}</small>
     </Card>
 
@@ -437,17 +461,17 @@ function formatDateTime(value: string) {
   return new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(value));
 }
 
-function RiskView({ today, action, onAction }: { today: FamilyToday; action: string; onAction: (action: FamilyAction, label: string) => Promise<void> }) {
+function RiskView({ busy, today, action, onAction }: { busy: boolean; today: FamilyToday; action: string; onAction: (action: FamilyAction, label: string) => Promise<void> }) {
   const levelLabel = today.safety.hasActiveEmergency ? "有求助正在处理" : today.status.level ? { green: "绿色 · 状态平稳", yellow: "黄色 · 待观察", orange: "橙色 · 需要关注", red: "红色 · 紧急" }[today.status.level] : "尚无评估结果";
   const urgency = today.safety.hasActiveEmergency ? "高" : today.status.level ? { green: "低", yellow: "低", orange: "中", red: "高" }[today.status.level] : "待确认";
   return <div className="page-grid risk-grid">
     <Card className="risk-overview"><div><Tag tone={today.status.level === "red" ? "alert" : today.status.level === "green" ? "safe" : "warm"}>{levelLabel}</Tag><h2>{today.safety.message}</h2><p>已上报的求助会单独进入人工处置流程；没有求助记录不代表已经确认安全。</p></div><div className="risk-ring"><b>{urgency}</b><span>紧急程度</span></div></Card>
-    <Card className="action-card"><p className="muted">本次待办</p><h3>完成一项关怀行动</h3><button className="primary full" disabled={!today.access.careActionsAllowed || !today.riskEventId} onClick={() => { void onAction("contacted", "已电话联系"); }}>记录已联系</button><button className="secondary full" disabled={!today.access.careActionsAllowed || !today.riskEventId} onClick={() => { void onAction("referral_requested", "申请专业转介"); }}>申请专业转介</button><small>{today.access.careActionsAllowed ? action : "当前授权仅允许查看摘要，不能提交关怀行动。"}</small></Card>
+    <Card className="action-card"><p className="muted">本次待办</p><h3>完成一项关怀行动</h3><button className="primary full" disabled={busy || !today.access.careActionsAllowed} onClick={() => { void onAction("contacted", "已电话联系"); }}>记录已联系</button><button className="secondary full" disabled={busy || !today.access.careActionsAllowed || !today.riskEventId} onClick={() => { void onAction("referral_requested", "申请专业转介"); }}>申请专业转介</button><small>{today.access.careActionsAllowed ? action : "当前授权仅允许查看摘要，不能提交关怀行动。"}</small></Card>
     <Card className="event-card"><div className="card-heading"><div><p className="muted">安全事件</p><h3>一键呼救与设备事件</h3></div><Tag tone={today.safety.hasActiveEmergency ? "alert" : "safe"}>{today.safety.hasActiveEmergency ? "处理中" : "暂无事件"}</Tag></div><p>{today.safety.message}</p>{today.safety.hasActiveEmergency && <div className="event-meta"><span>{today.safety.source === "device_button" ? "设备实体求助键" : "老人端一键呼救"}</span>{today.safety.triggeredAt && <span>发起于 {formatDateTime(today.safety.triggeredAt)}</span>}</div>}<small>家属端只显示事件状态和必要说明；不默认开放摄像头画面或日常视频。</small></Card>
   </div>;
 }
 
-function PlanView({ today, items, onAction, onAddItem, onCompleteItem }: { today: FamilyToday; items: FamilyCarePlanItem[]; onAction: (action: FamilyAction, label: string) => Promise<void>; onAddItem: (title: string, scheduledFor?: string) => Promise<void>; onCompleteItem: (itemId: string) => Promise<void> }) {
+function PlanView({ busy, today, items, onAction, onAddItem, onCompleteItem }: { busy: boolean; today: FamilyToday; items: FamilyCarePlanItem[]; onAction: (action: FamilyAction, label: string) => Promise<void>; onAddItem: (title: string, scheduledFor?: string) => Promise<void>; onCompleteItem: (itemId: string) => Promise<void> }) {
   const [title, setTitle] = useState("");
   const [scheduledFor, setScheduledFor] = useState("");
   const [saving, setSaving] = useState(false);
@@ -465,7 +489,7 @@ function PlanView({ today, items, onAction, onAddItem, onCompleteItem }: { today
       setSaving(false);
     }
   };
-  return <div className="page-grid plan-grid"><Card className="plan-hero"><p className="muted">下一次陪伴</p><h2>和{today.elder.name}约一个舒服的时间</h2><p>由本人决定是否接通。视频功能接入后，只会打开已绑定的联络路径，不保存通话内容。</p><button className="primary" disabled={!today.access.careActionsAllowed || !today.riskEventId} onClick={() => { void onAction("video_planned", "已确认视频问候安排"); }}>记录视频安排</button></Card><Card><p className="muted">新增计划</p><form className="plan-form" onSubmit={submit}><label>关怀事项<input value={title} maxLength={140} disabled={!today.access.careActionsAllowed || saving} onChange={(event) => setTitle(event.target.value)} placeholder="例如：周末一起整理相册" /></label><label>计划时间（可选）<input type="datetime-local" value={scheduledFor} disabled={!today.access.careActionsAllowed || saving} onChange={(event) => setScheduledFor(event.target.value)} /></label><button className="secondary" disabled={!today.access.careActionsAllowed || saving}>{saving ? "正在保存…" : "保存关怀计划"}</button></form></Card><Card><p className="muted">本周清单</p><h3>只属于当前家属的计划</h3>{items.length === 0 ? <p>还没有计划。可以从一句问候或一次短通话开始。</p> : <div className="task-list">{items.map((item) => <label key={item.id} className={item.completedAt ? "task-done" : ""}><input type="checkbox" checked={Boolean(item.completedAt)} disabled={Boolean(item.completedAt) || !today.access.careActionsAllowed} onChange={() => { void onCompleteItem(item.id); }} /> <span>{item.title}</span>{item.scheduledFor && <small>{formatDateTime(item.scheduledFor)}</small>}</label>)}</div>}</Card><Card><p className="muted">最近关怀记录</p><h3>已同步到服务端</h3>{today.recentActions.length === 0 ? <p>尚未记录关怀行动。</p> : <div className="action-history">{today.recentActions.map((item, index) => <div key={`${item.action}-${item.recordedAt}-${index}`}><b>{actionLabel(item.action)}</b><span>{formatDateTime(item.recordedAt)}</span></div>)}</div>}</Card><Card><p className="muted">关怀话题</p><h3>避免“盘问式”关心</h3><div className="prompt-chips"><span>今天阳光好吗？</span><span>昨晚睡得还好吗？</span><span>最近有什么开心的事？</span></div></Card></div>;
+  return <div className="page-grid plan-grid"><Card className="plan-hero"><p className="muted">下一次陪伴</p><h2>和{today.elder.name}约一个舒服的时间</h2><p>由本人决定是否接通。视频功能接入后，只会打开已绑定的联络路径，不保存通话内容。</p><button className="primary" disabled={busy || !today.access.careActionsAllowed} onClick={() => { void onAction("video_planned", "已确认视频问候安排"); }}>记录视频安排</button></Card><Card><p className="muted">新增计划</p><form className="plan-form" onSubmit={submit}><label>关怀事项<input value={title} maxLength={140} disabled={!today.access.careActionsAllowed || saving} onChange={(event) => setTitle(event.target.value)} placeholder="例如：周末一起整理相册" /></label><label>计划时间（可选）<input type="datetime-local" value={scheduledFor} disabled={!today.access.careActionsAllowed || saving} onChange={(event) => setScheduledFor(event.target.value)} /></label><button className="secondary" disabled={!today.access.careActionsAllowed || saving}>{saving ? "正在保存…" : "保存关怀计划"}</button></form></Card><Card><p className="muted">本周清单</p><h3>只属于当前家属的计划</h3>{items.length === 0 ? <p>还没有计划。可以从一句问候或一次短通话开始。</p> : <div className="task-list">{items.map((item) => <label key={item.id} className={item.completedAt ? "task-done" : ""}><input type="checkbox" checked={Boolean(item.completedAt)} disabled={Boolean(item.completedAt) || !today.access.careActionsAllowed} onChange={() => { void onCompleteItem(item.id); }} /> <span>{item.title}</span>{item.scheduledFor && <small>{formatDateTime(item.scheduledFor)}</small>}</label>)}</div>}</Card><Card><p className="muted">最近关怀记录</p><h3>已同步到服务端</h3>{today.recentActions.length === 0 ? <p>尚未记录关怀行动。</p> : <div className="action-history">{today.recentActions.map((item, index) => <div key={`${item.action}-${item.recordedAt}-${index}`}><b>{actionLabel(item.action)}</b><span>{formatDateTime(item.recordedAt)}</span></div>)}</div>}</Card><Card><p className="muted">关怀话题</p><h3>避免“盘问式”关心</h3><div className="prompt-chips"><span>今天阳光好吗？</span><span>昨晚睡得还好吗？</span><span>最近有什么开心的事？</span></div></Card></div>;
 }
 
 function PrivacyView({ today }: { today: FamilyToday }) {

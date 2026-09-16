@@ -72,10 +72,11 @@ export function markNotificationRead(token: string, notificationId: string) {
   });
 }
 
-export function recordFamilyAction(token: string, riskEventId: string, action: FamilyAction) {
-  return request<ActionResult>(`/api/family/risk-events/${riskEventId}/actions`, token, {
+export function recordFamilyAction(token: string, elderId: string, riskEventId: string | null, action: FamilyAction, requestId: string) {
+  const path = riskEventId ? `/api/family/risk-events/${riskEventId}/actions` : `/api/family/elders/${elderId}/actions`;
+  return request<ActionResult>(path, token, {
     method: "POST",
-    body: JSON.stringify({ requestId: crypto.randomUUID(), action })
+    body: JSON.stringify({ requestId, action })
   });
 }
 

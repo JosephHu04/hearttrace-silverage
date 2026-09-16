@@ -12,6 +12,7 @@ type AdminView = "risk" | "emergency" | "relationships" | "notifications" | "aud
 const emptyAuditFilters: AuditFilters = { actorId: "", action: "", targetType: "", targetId: "", page: 1, perPage: 25 };
 
 const auditActionLabels: Record<string, string> = {
+  "account.password_changed": "本人修改登录密码",
   "risk.viewed": "查看风险详情",
   "risk.claim": "认领风险事件",
   "risk.begin_review": "开始人工复核",
@@ -498,7 +499,7 @@ export default function AdminDashboard() {
       <section className="workspace">
         <header className="topbar">
           <div><p>{viewHeadings[activeView].eyebrow}</p><h1>{viewHeadings[activeView].title}</h1></div>
-          <div className="actor"><span>{actor?.displayName?.slice(0, 1) ?? "管"}</span><div><strong>{actor?.displayName ?? "管理员"}</strong><small>管理员</small></div><button className="actor-logout" onClick={logout}>退出</button></div>
+          <div className="actor"><span>{actor?.displayName?.slice(0, 1) ?? "管"}</span><div><strong>{actor?.displayName ?? "管理员"}</strong><small>管理员</small></div><a className="actor-logout" href="/account/security">账号安全</a><button className="actor-logout" onClick={logout}>退出</button></div>
         </header>
 
         <div className={error ? "notice error" : "notice"} role="status">

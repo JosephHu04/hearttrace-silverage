@@ -6,6 +6,7 @@ from app.core.config import get_settings
 from app.core.security import create_access_token, hash_one_time_token, hash_password, verify_password
 from app.db.models import PasswordRecoveryToken, RegistrationApplication, User, utc_now
 from app.dependencies import CurrentActor, DbSession
+from app.services.audit import add_audit_log
 from app.schemas import (
     ActorOut,
     DemoLoginRequest,
@@ -110,10 +111,17 @@ def login(body: LoginRequest, db: DbSession) -> TokenOut:
 def change_password(body: PasswordChangeRequest, db: DbSession, actor: CurrentActor) -> MessageOut:
     if not verify_password(body.current_password, actor.password_hash):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="当前密码不正确")
-    actor.password_hash = hash_password(body.new_password)
-    actor.password_changed_at = utc_now()
+    if body.current_password == body.new_password:
+        raise HTTPException(status_code=400, detail="新密码不能与当前密码相同")
+    changed = db.execute(update(User).where(User.id == actor.id, User.password_hash == actor.password_hash).values(
+        password_hash=hash_password(body.new_password), password_changed_at=utc_now(),
+    ).execution_options(synchronize_session=False))
+    if changed.rowcount != 1:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="密码已被更新，请使用最新密码重新登录")
+    add_audit_log(db, actor_id=actor.id, action="account.password_changed", target_type="user", target_id=actor.id, metadata={"sessionsRevoked": True})
     db.commit()
-    return MessageOut(message="密码已更新，请在其他设备重新登录")
+    return MessageOut(message="密码已更新，请在所有设备重新登录")
 
 
 @router.post("/password-recovery", response_model=MessageOut)

@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from app.db.models import (
     DailyInsight,
@@ -110,10 +111,9 @@ def family_today(elder_id: str, db: DbSession, actor: FamilyActor) -> FamilyToda
         recent_actions = list(
             db.scalars(
                 select(FamilyActionRecord)
-                .join(RiskEvent, RiskEvent.id == FamilyActionRecord.risk_event_id)
                 .where(
                     FamilyActionRecord.family_id == actor.id,
-                    RiskEvent.elder_id == elder_id,
+                    FamilyActionRecord.elder_id == elder_id,
                 )
                 .order_by(FamilyActionRecord.created_at.desc())
                 .limit(5)
@@ -290,28 +290,53 @@ def record_family_action(
     event = db.get(RiskEvent, event_id)
     if event is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="风险事件不存在")
-    active_grant(db, actor.id, event.elder_id, "care_actions")
-    existing = db.scalar(select(FamilyActionRecord).where(FamilyActionRecord.request_id == body.request_id))
-    if existing is not None:
-        if existing.family_id != actor.id or existing.risk_event_id != event_id or existing.action != body.action.value:
+    return save_family_action(db, actor.id, event.elder_id, event.id, body)
+
+
+@router.post("/elders/{elder_id}/actions", response_model=FamilyActionResult)
+def record_daily_family_action(elder_id: str, body: FamilyActionRequest, db: DbSession, actor: FamilyActor) -> FamilyActionResult:
+    active_grant(db, actor.id, elder_id, "care_actions")
+    if body.action.value not in {"contacted", "video_planned"}:
+        raise HTTPException(status_code=400, detail="专业转介请通过具体风险事件申请")
+    return save_family_action(db, actor.id, elder_id, None, body)
+
+
+def save_family_action(db: DbSession, family_id: str, elder_id: str, event_id: str | None, body: FamilyActionRequest) -> FamilyActionResult:
+    active_grant(db, family_id, elder_id, "care_actions")
+
+    def replay(existing: FamilyActionRecord) -> FamilyActionResult:
+        if (existing.family_id, existing.elder_id, existing.risk_event_id, existing.action) != (family_id, elder_id, event_id, body.action.value):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="幂等键已用于其他家属行动")
         return FamilyActionResult(action=existing.action, recorded_at=existing.created_at, duplicate=True)
 
+    existing = db.scalar(select(FamilyActionRecord).where(FamilyActionRecord.request_id == body.request_id))
+    if existing is not None:
+        return replay(existing)
+
     record = FamilyActionRecord(
         request_id=body.request_id,
-        risk_event_id=event.id,
-        family_id=actor.id,
+        risk_event_id=event_id,
+        elder_id=elder_id,
+        family_id=family_id,
         action=body.action.value,
     )
     db.add(record)
     add_audit_log(
         db,
-        actor_id=actor.id,
+        actor_id=family_id,
         action=f"family.{body.action.value}",
-        target_type="risk_event",
-        target_id=event.id,
-        metadata={"elderId": event.elder_id},
+        target_type="risk_event" if event_id else "elder",
+        target_id=event_id or elder_id,
+        metadata={"elderId": elder_id},
     )
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        active_grant(db, family_id, elder_id, "care_actions")
+        existing = db.scalar(select(FamilyActionRecord).where(FamilyActionRecord.request_id == body.request_id))
+        if existing is None:
+            raise
+        return replay(existing)
     db.refresh(record)
     return FamilyActionResult(action=record.action, recorded_at=record.created_at)
