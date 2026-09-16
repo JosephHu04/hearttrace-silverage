@@ -33,6 +33,68 @@ class FakeAnalyzer:
         return self.output, {"prompt_tokens": 20, "completion_tokens": 10}
 
 
+def test_new_family_registration_to_chat_summary_follow_up_and_revocation(
+    client: TestClient,
+    elder_headers: dict[str, str],
+    admin_headers: dict[str, str],
+) -> None:
+    credentials = {"loginIdentifier": "closure@example.test", "password": "ClosureTest2026!"}
+    submitted = client.post("/api/auth/registration-applications", json={
+        **credentials,
+        "displayName": "闭环测试家属",
+        "relationship": "子女",
+        "elderName": "陈奶奶",
+        "consentVersion": "family-registration-v1",
+    })
+    assert submitted.status_code == 201
+    assert client.post("/api/auth/login", json=credentials).status_code == 401
+    approved = client.post(
+        f"/api/admin/registration-applications/{submitted.json()['id']}/review",
+        headers=admin_headers,
+        json={"decision": "approved", "elderId": "elder-demo-001"},
+    )
+    assert approved.status_code == 200
+    login = client.post("/api/auth/login", json=credentials)
+    assert login.status_code == 200
+    family_id = login.json()["actor"]["id"]
+    headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
+    assert client.get("/api/family/elders/elder-demo-002/today", headers=headers).status_code == 403
+
+    # An existing elder completes an authorized chat. The analyzer is synthetic;
+    # this verifies integration and persistence, not external-model accuracy.
+    _complete_turn(client, elder_headers, save_messages=True, allow_analysis=True)
+    analyzer = FakeAnalyzer()
+    with SessionLocal() as db:
+        outcome = process_next_analysis_event(db, analyzer=analyzer, model_version="closure-test-v1")
+    assert outcome is not None and outcome.status == "processed"
+    assert outcome.risk_event_id is not None
+    risk_id = outcome.risk_event_id
+    for version, action in enumerate(("claim", "begin_review", "request_action"), start=1):
+        result = client.post(f"/api/admin/risk-events/{risk_id}/actions", headers=admin_headers, json={
+            "requestId": f"closure-{action}", "action": action,
+            "expectedVersion": version, "note": "合成测试：已完成人工复核。",
+        })
+        assert result.status_code == 200
+    today = client.get("/api/family/elders/elder-demo-001/today", headers=headers)
+    assert today.status_code == 200
+    assert today.json()["status"]["summary"] == analyzer.output["family_summary"]
+    contacted = client.post(f"/api/family/risk-events/{risk_id}/actions", headers=headers, json={
+        "requestId": "closure-contacted", "action": "contacted",
+    })
+    assert contacted.status_code == 200
+    notifications = client.get("/api/notifications/me", headers=headers)
+    assert notifications.status_code == 200
+    assert "analysis_summary" in {item["category"] for item in notifications.json()["items"]}
+    for action in ("family.today_viewed", "family.contacted"):
+        audit = client.get(f"/api/admin/audit-logs?actorId={family_id}&action={action}", headers=admin_headers)
+        assert audit.status_code == 200 and audit.json()["total"] >= 1
+    revoked = client.post(f"/api/admin/family-grants/{family_id}/elder-demo-001/actions", headers=admin_headers, json={
+        "action": "revoke", "expectedVersion": 1, "note": "合成测试：撤回家属授权。",
+    })
+    assert revoked.status_code == 200
+    assert client.get("/api/family/elders/elder-demo-001/today", headers=headers).status_code == 403
+
+
 def _token(headers: dict[str, str]) -> str:
     return headers["Authorization"].removeprefix("Bearer ")
 
