@@ -29,7 +29,7 @@ def seed_demo_data(db: Session) -> None:
     add_missing(
         db,
         [
-            User(id="staff-admin-001", display_name="周老师", role="admin"),
+            User(id="staff-admin-001", display_name="周老师", role="admin", login_identifier="admin.demo@hearttrace.local", password_hash=hash_password("AdminDemo2026!")),
             User(id="staff-professional-001", display_name="许老师", role="professional"),
             User(id="family-demo-001", display_name="林女士", role="family", login_identifier="lin.demo@hearttrace.local", password_hash=hash_password("FamilyDemo2026!")),
             User(id="family-demo-002", display_name="王先生", role="family", login_identifier="wang.demo@hearttrace.local", password_hash=hash_password("FamilyDemo2026!")),
@@ -41,6 +41,7 @@ def seed_demo_data(db: Session) -> None:
     )
     db.flush()
     for actor_id, identifier, password in [
+        ("staff-admin-001", "admin.demo@hearttrace.local", "AdminDemo2026!"),
         ("family-demo-001", "lin.demo@hearttrace.local", "FamilyDemo2026!"),
         ("family-demo-002", "wang.demo@hearttrace.local", "FamilyDemo2026!"),
         ("family-no-access-001", "noaccess.demo@hearttrace.local", "NoAccessDemo2026!"),

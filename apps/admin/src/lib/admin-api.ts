@@ -13,15 +13,25 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as { detail?: string } | null;
-    throw new Error(body?.detail ?? `请求失败：${response.status}`);
+    if (response.status === 401 && typeof window !== "undefined") {
+      window.dispatchEvent(new Event("hearttrace.admin.unauthorized"));
+    }
+    throw new ApiError(body?.detail ?? `请求失败：${response.status}`, response.status);
   }
   return response.json() as Promise<T>;
 }
 
-export function demoLogin() {
-  return request<LoginResult>("/api/auth/demo-login", {
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+export function loginWithPassword(loginIdentifier: string, password: string) {
+  return request<LoginResult>("/api/auth/login", {
     method: "POST",
-    body: JSON.stringify({ actorId: "staff-admin-001" })
+    body: JSON.stringify({ loginIdentifier, password })
   });
 }
 

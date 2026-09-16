@@ -38,6 +38,8 @@ npm run dev
 
 打开 `http://localhost:3000/account`，使用下方合成账号的邮箱和密码登录。
 
+管理端打开 `http://localhost:3001/account`，使用本地合成账号 `admin.demo@hearttrace.local` / `AdminDemo2026!` 登录。家属端可使用 `lin.demo@hearttrace.local` / `FamilyDemo2026!`；请不要用这些演示凭据处理真实老人资料。
+
 ## 手动验收路径
 
 1. 选择林女士，应显示陈奶奶、72 分和黄色轻度关怀；记录“已电话联系”应成功。
@@ -45,6 +47,7 @@ npm run dev
 3. 选择无授权账号，应显示访问被拒绝页，不得回退展示任何老人的 Mock 数据。
 4. 使用管理员令牌查询审计日志：`targetType=elder&targetId=elder-demo-001` 应看到 `family.today_viewed`；`targetType=risk_event&targetId=risk-demo-001` 应看到 `family.contacted`。
 5. 停止后端后刷新家属端，应明确显示服务不可用，并且不得展示 Mock 或缓存的老人数据。
+6. 未登录时直接打开管理端根地址，应转到登录页；使用家属账号在管理端尝试登录，应被拒绝且不能看到注册申请。管理员退出或令牌失效后，同一标签页刷新也不得显示原工作台。
 
 ## 紧急求助接口联调
 
