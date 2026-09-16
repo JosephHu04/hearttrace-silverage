@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { completeFamilyCarePlanItem, createFamilyCarePlanItem, getFamilyCarePlan, getFamilyElders, getFamilyToday, getFamilyTrend, getNotifications, markNotificationRead, recordFamilyAction } from "@/lib/family-api";
-import { mockFamilyToday } from "@/lib/mock-family-data";
+import { ApiError, completeFamilyCarePlanItem, createFamilyCarePlanItem, getFamilyCarePlan, getFamilyElders, getFamilyToday, getFamilyTrend, getNotifications, markNotificationRead, recordFamilyAction } from "@/lib/family-api";
 import type { FamilyAction, FamilyCarePlanItem, FamilyElder, FamilyToday, FamilyTrend, NotificationCategory, NotificationItem, NotificationList } from "@/lib/types";
 
 type PageKey = "today" | "report" | "trend" | "risk" | "notifications" | "plan" | "privacy";
@@ -49,7 +48,7 @@ export default function FamilyDashboard() {
   const [page, setPage] = useState<PageKey>("today");
   const [action, setAction] = useState("尚未记录行动");
   const [notice, setNotice] = useState("正在读取已授权的摘要、趋势和安全事件状态。");
-  const [today, setToday] = useState<FamilyToday>(mockFamilyToday);
+  const [today, setToday] = useState<FamilyToday | null>(null);
   const [trend, setTrend] = useState<FamilyTrend | null>(null);
   const [trendDays, setTrendDays] = useState<7 | 30>(7);
   const [carePlan, setCarePlan] = useState<FamilyCarePlanItem[]>([]);
@@ -73,6 +72,7 @@ export default function FamilyDashboard() {
 
     const stored = sessionStorage.getItem("hearttrace.family.session");
     if (!stored) {
+      setSessionChecked(true);
       setApiState("signed_out");
       router.replace("/account");
       return () => { active = false; };
@@ -83,6 +83,7 @@ export default function FamilyDashboard() {
       if (!session.accessToken || session.actor.role !== "family") throw new Error("invalid family session");
     } catch {
       sessionStorage.removeItem("hearttrace.family.session");
+      setSessionChecked(true);
       setApiState("signed_out");
       router.replace("/account");
       return () => { active = false; };
@@ -108,6 +109,9 @@ export default function FamilyDashboard() {
       .then((result) => {
         if (result.items.length === 0) {
           if (!active) return;
+          setToday(null);
+          setSelectedElderId(null);
+          setElders([]);
           setApiState("denied");
           setPage("notifications");
           setNotice("该账号暂无有效老人授权，仍可查看本人账号与授权变更通知。");
@@ -117,9 +121,19 @@ export default function FamilyDashboard() {
         setElders(result.items);
         setSelectedElderId(result.items[0].id);
       })
-      .catch(() => {
+      .catch((cause) => {
         if (!active) return;
+        if (cause instanceof ApiError && cause.status === 401) {
+          sessionStorage.removeItem("hearttrace.family.session");
+          setToken(null);
+          setToday(null);
+          setApiState("signed_out");
+          setNotice("登录状态已过期，请重新登录。");
+          router.replace("/account");
+          return;
+        }
         setToken(null);
+        setToday(null);
         setApiState("unavailable");
         setNotice("暂时无法连接核心 API，未展示任何老人数据。请稍后重试。");
       });
@@ -148,13 +162,28 @@ export default function FamilyDashboard() {
         setApiState("connected");
         setNotice(`已读取授权摘要、${trendData.items.length} 条趋势记录与私人关怀计划，当前老人：${todayData.elder.name}。`);
       })
-      .catch(() => {
+      .catch((cause) => {
         if (!active) return;
+        setToday(null);
+        setTrend(null);
+        setCarePlan([]);
+        if (cause instanceof ApiError && cause.status === 401) {
+          sessionStorage.removeItem("hearttrace.family.session");
+          setToken(null);
+          setApiState("signed_out");
+          router.replace("/account");
+          return;
+        }
+        if (cause instanceof ApiError && cause.status === 403) {
+          setApiState("denied");
+          setNotice("老人授权已撤回或当前关系未生效，未展示任何关怀数据。");
+          return;
+        }
         setApiState("unavailable");
         setNotice("暂时无法读取该老人的授权数据，未展示任何模拟或缓存信息。请稍后重试。");
       });
     return () => { active = false; };
-  }, [token, selectedElderId, trendDays]);
+  }, [token, selectedElderId, trendDays, router]);
 
   const logout = () => {
     sessionStorage.removeItem("hearttrace.family.session");
@@ -218,14 +247,15 @@ export default function FamilyDashboard() {
 
   const recordAction = async (nextAction: FamilyAction, label: string) => {
     try {
+      if (!token || !today) throw new Error("当前登录或摘要不可用");
       if (!today.riskEventId) throw new Error("当前没有可关联的风险事件");
       if (!today.access.careActionsAllowed) throw new Error("当前授权不包含关怀行动");
       const recorded = await recordFamilyAction(token, today.riskEventId, nextAction);
       setAction(`已记录：${label}`);
-      setToday((current) => ({
+      setToday((current) => current ? ({
         ...current,
         recentActions: [{ action: nextAction, recordedAt: recorded.recordedAt }, ...current.recentActions].slice(0, 5)
-      }));
+      }) : current);
       setNotice(`关怀行动“${label}”已提交。该记录会进入家属端的后续审计与跟进流程。`);
     } catch {
       setAction(`待同步：${label}`);
@@ -234,7 +264,7 @@ export default function FamilyDashboard() {
   };
 
   const addCarePlan = async (title: string, scheduledFor?: string) => {
-    if (!token || !selectedElderId || !today.access.careActionsAllowed) return;
+    if (!token || !selectedElderId || !today?.access.careActionsAllowed) return;
     const normalizedTitle = title.trim();
     if (normalizedTitle.length < 2) {
       setNotice("请至少填写两个字的关怀计划内容。");
@@ -251,7 +281,7 @@ export default function FamilyDashboard() {
   };
 
   const completeCarePlan = async (itemId: string) => {
-    if (!token || !selectedElderId || !today.access.careActionsAllowed) return;
+    if (!token || !selectedElderId || !today?.access.careActionsAllowed) return;
     try {
       const completed = await completeFamilyCarePlanItem(token, selectedElderId, itemId);
       setCarePlan((items) => items.map((item) => item.id === itemId ? completed : item));
@@ -274,8 +304,8 @@ export default function FamilyDashboard() {
         </div>
 
         <div className="elder-switcher">
-          <div className="elder-avatar">{apiState === "denied" || elders.length === 0 ? "—" : (elders.find((elder) => elder.id === selectedElderId)?.name ?? today.elder.name).slice(0, 1)}</div>
-          <div><strong>{apiState === "denied" ? "无授权老人" : elders.find((elder) => elder.id === selectedElderId)?.name ?? today.elder.name}</strong><span>{apiState === "denied" ? "服务端未返回数据" : `${elders.find((elder) => elder.id === selectedElderId)?.age ?? today.elder.age} 岁 · 已授权`}</span></div>
+          <div className="elder-avatar">{apiState === "denied" || elders.length === 0 ? "—" : (elders.find((elder) => elder.id === selectedElderId)?.name ?? "—").slice(0, 1)}</div>
+          <div><strong>{apiState === "denied" ? "无授权老人" : elders.find((elder) => elder.id === selectedElderId)?.name ?? "正在读取"}</strong><span>{apiState === "denied" ? "服务端未返回数据" : elders.find((elder) => elder.id === selectedElderId) ? `${elders.find((elder) => elder.id === selectedElderId)?.age} 岁 · 已授权` : "正在核对授权"}</span></div>
           {elders.length > 1 && <select aria-label="切换老人" className="elder-select" value={selectedElderId ?? ""} onChange={(event) => setSelectedElderId(event.target.value)}>{elders.map((elder) => <option key={elder.id} value={elder.id}>{elder.name}</option>)}</select>}
         </div>
 
@@ -306,7 +336,7 @@ export default function FamilyDashboard() {
 
         {page === "notifications" && token ? (
           <NotificationView notifications={notifications} loading={notificationLoading} busyId={notificationBusy} canOpenCare={apiState === "connected"} onRefresh={loadNotifications} onRead={readNotification} onOpen={openNotification} />
-        ) : apiState !== "connected" ? (
+        ) : apiState !== "connected" || !today ? (
           <Card className="access-denied"><Tag tone="alert">{apiState === "signed_out" ? "需要登录" : apiState === "denied" ? "暂未授权" : "服务不可用"}</Tag><h2>{apiState === "signed_out" ? "登录后才能查看关怀信息" : apiState === "denied" ? "当前账号暂未获得老人授权" : "暂时无法读取关怀数据"}</h2><p>{apiState === "signed_out" ? "仅已获管理端批准的家属账号可登录。" : "为保护老人隐私，页面不会在异常状态下展示任何模拟或缓存的老人数据。"}</p>{apiState === "signed_out" && <a className="primary" href="/account">前往登录</a>}</Card>
         ) : (
           <>

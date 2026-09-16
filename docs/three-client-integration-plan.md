@@ -27,7 +27,7 @@
 | 管理端 | 3001 | 人工复核、授权、紧急事件与审计 |
 | 老人端 | 3002 | 陪伴、授权、筛查与求助 |
 
-每个前端使用 `NEXT_PUBLIC_API_BASE_URL` 指向同一个核心 API。CORS 仅放行当前测试环境中的三个前端域名。模型密钥、数据库密码、真实联系方式和真实健康数据均不得提交到 Git。
+三个前端的 `NEXT_PUBLIC_API_BASE_URL` 统一填 API 的**域名与端口**，例如 `http://127.0.0.1:8000`，**不要附加 `/api`**。前端代码自己拼接 API 路径；原先老人端的 `/api` 配置仍兼容，但新配置一律用同一种格式。否则家属端和管理端会误请求 `/api/api/...`。CORS 仅放行当前测试环境中的三个前端域名。模型密钥、数据库密码、真实联系方式和真实健康数据均不得提交到 Git。
 
 ## 3. 合并规则
 
@@ -43,7 +43,7 @@
 - `feature/elder-consent-screening-safety`：老人授权、打卡、量表、呼救和视频请求。
 - `feature/family-screening-video-status`：家属筛查摘要、视频状态和通知跳转。
 - `feature/admin-screening-device-review`：筛查、跌倒和视频请求的人工复核。
-- `chore/three-client-integration`：仅放联调文档、环境约定与跨端烟雾测试，不承载业务功能。
+- `chore/three-client-integration`：放联调文档、环境约定、跨端回归测试和联调中必须一起修正的质量问题；后续新业务功能仍分端开 PR。
 
 ## 4. 首个必须跑通的闭环
 
@@ -85,4 +85,4 @@
 
 ## 7. 当前本地联调结果
 
-在 `chore/three-client-integration` 工作区中，Python 3.11 数据库迁移、47 项 API 测试和“老人求助 → 管理端处置 → 授权家属通知 → 未授权隔离”跨端烟雾测试均已通过。该结果只使用独立 SQLite 合成数据库；下一阶段切换到共享 PostgreSQL 测试库。
+在 `chore/three-client-integration` 工作区中，Python 3.11 数据库迁移、50 项 API 测试、三端 ESLint 与生产构建、三端前端依赖安全审计和“老人求助 → 管理端处置 → 授权家属通知 → 未授权隔离”真实 HTTP 烟雾测试均已通过。浏览器中已核对老人端授权/呼救确认与家属登录前拦截，并修正了管理端的联调地址错配。该结果只使用独立 SQLite 合成数据库；下一阶段切换到共享 PostgreSQL 测试库。

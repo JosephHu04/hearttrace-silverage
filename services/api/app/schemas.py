@@ -103,6 +103,14 @@ class RegistrationApplicationOut(ApiModel):
     created_at: datetime
 
 
+class RegistrationApplicationStatusOut(ApiModel):
+    id: str
+    status: RegistrationStatus
+    review_note: Optional[str]
+    reviewed_at: Optional[datetime]
+    created_at: datetime
+
+
 class RegistrationApplicationListOut(ApiModel):
     items: list[RegistrationApplicationOut]
     total: int

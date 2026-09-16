@@ -13,8 +13,18 @@ from app.schemas import HealthOut
 settings = get_settings()
 
 
+def validate_runtime_settings() -> None:
+    if settings.environment.lower() != "production":
+        return
+    if settings.enable_demo_login or settings.seed_demo_data:
+        raise RuntimeError("生产环境必须关闭演示登录与演示数据")
+    if settings.jwt_secret == "development-only-change-me-32-bytes-minimum" or len(settings.jwt_secret) < 32:
+        raise RuntimeError("生产环境必须配置至少 32 字符的独立 JWT_SECRET")
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    validate_runtime_settings()
     create_schema()
     if settings.seed_demo_data:
         with SessionLocal() as db:

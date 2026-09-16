@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { changePassword } from "@/lib/family-api";
 
@@ -38,5 +39,5 @@ export default function SecurityPage() {
   };
 
   if (!token) return <main className="auth-loading" aria-live="polite"><div><span className="auth-loading-mark">心</span><p>正在验证登录状态…</p></div></main>;
-  return <main className="auth-page auth-flow-page"><div className="auth-brand"><span>心</span><div><strong>心迹银龄</strong><small>账户与安全</small></div></div><section className="flow-card"><a className="back-link" href="/">← 返回关怀台</a><p className="eyebrow">账户安全</p><h1>修改登录密码</h1><p>修改后请使用新密码登录。此操作不会改变你的老人授权范围。</p><form className="login-form" onSubmit={(event) => { void change(event); }}><label>当前密码<input name="currentPassword" type="password" required minLength={10} autoComplete="current-password" /></label><label>新密码<input name="newPassword" type="password" required minLength={10} autoComplete="new-password" /></label><label>确认新密码<input name="newPasswordConfirm" type="password" required minLength={10} autoComplete="new-password" /></label><button className="primary login-submit" disabled={busy}>{busy ? "正在更新…" : "更新密码"}</button></form>{notice && <p className="auth-notice" role="status">{notice}</p>}</section></main>;
+  return <main className="auth-page auth-flow-page"><div className="auth-brand"><span>心</span><div><strong>心迹银龄</strong><small>账户与安全</small></div></div><section className="flow-card"><Link className="back-link" href="/">← 返回关怀台</Link><p className="eyebrow">账户安全</p><h1>修改登录密码</h1><p>修改后请使用新密码登录。此操作不会改变你的老人授权范围。</p><form className="login-form" onSubmit={(event) => { void change(event); }}><label>当前密码<input name="currentPassword" type="password" required minLength={10} autoComplete="current-password" /></label><label>新密码<input name="newPassword" type="password" required minLength={10} autoComplete="new-password" /></label><label>确认新密码<input name="newPasswordConfirm" type="password" required minLength={10} autoComplete="new-password" /></label><button className="primary login-submit" disabled={busy}>{busy ? "正在更新…" : "更新密码"}</button></form>{notice && <p className="auth-notice" role="status">{notice}</p>}</section></main>;
 }

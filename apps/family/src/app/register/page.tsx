@@ -2,12 +2,12 @@
 
 import { FormEvent, useState } from "react";
 import { createRegistrationApplication, getRegistrationApplication } from "@/lib/family-api";
-import type { RegistrationApplication } from "@/lib/types";
+import type { RegistrationApplication, RegistrationApplicationStatus } from "@/lib/types";
 
 const statusText = { pending: "等待管理端审核", approved: "审核已通过，可以登录", rejected: "申请未通过" } as const;
 
 export default function RegisterPage() {
-  const [application, setApplication] = useState<RegistrationApplication | null>(null);
+  const [application, setApplication] = useState<RegistrationApplication | RegistrationApplicationStatus | null>(null);
   const [lookupId, setLookupId] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
@@ -61,7 +61,7 @@ export default function RegisterPage() {
       <p>提交后由管理端核验关系与授权。审核通过前无法访问任何老人信息。</p>
       <form className="auth-form" onSubmit={(event) => { void submit(event); }}>
         <label>您的称呼<input name="displayName" required minLength={2} placeholder="例如：林女士" /></label>
-        <label>手机号或邮箱<input name="loginIdentifier" required minLength={3} placeholder="用于登录与找回密码" /></label>
+        <label>手机号或邮箱<input name="loginIdentifier" required minLength={3} placeholder="用于登录；自助找回暂未开通" /></label>
         <label>与老人的关系<select name="relationship" defaultValue=""><option value="" disabled>请选择</option><option value="子女">子女</option><option value="配偶">配偶</option><option value="孙辈">孙辈</option><option value="其他监护人">其他监护人</option></select></label>
         <label>老人称呼<input name="elderName" required placeholder="例如：陈奶奶" /></label>
         <label>设置密码<input name="password" type="password" required minLength={10} autoComplete="new-password" placeholder="至少 10 位" /></label>

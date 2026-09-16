@@ -83,6 +83,11 @@ export type RegistrationApplication = {
   createdAt: string;
 };
 
+export type RegistrationApplicationStatus = Pick<
+  RegistrationApplication,
+  "id" | "status" | "reviewNote" | "reviewedAt" | "createdAt"
+>;
+
 export type AuthMessage = { message: string };
 
 export type LoginResult = {

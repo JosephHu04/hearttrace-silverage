@@ -2,11 +2,17 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000/api";
+// All three clients configure the API origin. Accept the older /api suffix too.
+const API_ORIGIN = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000")
+  .replace(/\/api\/?$/, "")
+  .replace(/\/$/, "");
+const API_BASE = `${API_ORIGIN}/api`;
 const DEMO_ACTOR = process.env.NEXT_PUBLIC_ELDER_DEMO_ACTOR_ID ?? "elder-demo-001";
 
 type ActivePanel = "home" | "chat" | "time" | "weather" | "news";
-type ChatMessage = { id: string; role: "user" | "assistant"; content: string; at: Date };
+type ConsentMode = "private" | "care";
+type EmergencyState = "idle" | "confirming" | "submitting" | "sent" | "error";
+type ChatMessage = { id: string; role: "user" | "assistant"; content: string; at: Date | null };
 type Weather = {
   location: string;
   temperature: number;
@@ -40,16 +46,19 @@ function displayTime(date: Date): string {
 
 export default function ElderCompanionPage() {
   const [activePanel, setActivePanel] = useState<ActivePanel>("home");
-  const [now, setNow] = useState(new Date());
+  const [consentMode, setConsentMode] = useState<ConsentMode | null>(null);
+  const [now, setNow] = useState<Date | null>(null);
   const [status, setStatus] = useState("正在连接");
   const [messages, setMessages] = useState<ChatMessage[]>([
-    { id: "welcome", role: "assistant", content: "我在呢。您今天想说点什么？旧事、新鲜事，我都慢慢听。", at: new Date() }
+    { id: "welcome", role: "assistant", content: "我在呢。您今天想说点什么？旧事、新鲜事，我都慢慢听。", at: null }
   ]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState("遥遥正在回复");
   const [weather, setWeather] = useState<Weather | null>(null);
   const [news, setNews] = useState<NewsItem[]>([]);
+  const [emergencyState, setEmergencyState] = useState<EmergencyState>("idle");
+  const [emergencyMessage, setEmergencyMessage] = useState("");
   const socketRef = useRef<WebSocket | null>(null);
   const tokenRef = useRef("");
   const assistantIdRef = useRef<string | null>(null);
@@ -82,6 +91,7 @@ export default function ElderCompanionPage() {
   }, [authorizedFetch]);
 
   useEffect(() => {
+    setNow(new Date());
     const timer = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(timer);
   }, []);
@@ -91,6 +101,7 @@ export default function ElderCompanionPage() {
   }, [activePanel, messages, busy]);
 
   useEffect(() => {
+    if (!consentMode) return;
     let cancelled = false;
     let socket: WebSocket | null = null;
 
@@ -111,7 +122,10 @@ export default function ElderCompanionPage() {
             Authorization: `Bearer ${login.accessToken}`,
             "Content-Type": "application/json"
           },
-          body: JSON.stringify({ saveMessages: false, allowAnalysis: false })
+          body: JSON.stringify({
+            saveMessages: consentMode === "care",
+            allowAnalysis: consentMode === "care"
+          })
         });
         const session = await sessionResponse.json();
         if (!sessionResponse.ok) throw new Error(session.detail ?? "无法创建会话");
@@ -177,7 +191,7 @@ export default function ElderCompanionPage() {
       cancelled = true;
       socket?.close();
     };
-  }, [loadNews, loadWeather]);
+  }, [consentMode, loadNews, loadWeather]);
 
   function sendMessage(event: FormEvent) {
     event.preventDefault();
@@ -190,15 +204,83 @@ export default function ElderCompanionPage() {
     socketRef.current.send(JSON.stringify({ type: "message", text }));
   }
 
-  const dateText = new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "long", day: "numeric", weekday: "long" }).format(now);
-  const dayPeriod = now.getHours() < 6 ? "凌晨" : now.getHours() < 12 ? "上午" : now.getHours() < 18 ? "下午" : "晚上";
+  async function submitEmergency() {
+    if (emergencyState === "submitting" || emergencyState === "sent") return;
+    if (!tokenRef.current) {
+      setEmergencyState("error");
+      setEmergencyMessage("当前还没有连上求助服务。请立即联系身边工作人员或拨打当地紧急电话。");
+      return;
+    }
+    setEmergencyState("submitting");
+    setEmergencyMessage("正在发送求助，请稍候…");
+    try {
+      const response = await fetch(`${API_BASE}/emergency/events`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${tokenRef.current}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          requestId: `elder-sos-${crypto.randomUUID()}`,
+          source: "elder_button",
+          note: "老人通过触控端主动发出求助"
+        })
+      });
+      const result = await response.json().catch(() => ({})) as { detail?: string };
+      if (!response.ok) throw new Error(result.detail ?? "求助暂时未发送成功");
+      setEmergencyState("sent");
+      setEmergencyMessage("求助已经发出，家属和工作人员会收到提醒。请留在安全的位置等待联系。");
+    } catch (error) {
+      setEmergencyState("error");
+      setEmergencyMessage(`${error instanceof Error ? error.message : "求助暂时未发送成功"}。请立即联系身边工作人员或拨打当地紧急电话。`);
+    }
+  }
+
+  function resetConversationConsent() {
+    socketRef.current?.close();
+    socketRef.current = null;
+    tokenRef.current = "";
+    assistantIdRef.current = null;
+    setConsentMode(null);
+    setActivePanel("home");
+    setStatus("正在连接");
+    setBusy(false);
+    setInput("");
+    setEmergencyState("idle");
+    setEmergencyMessage("");
+    setMessages([{ id: "welcome", role: "assistant", content: "我在呢。您今天想说点什么？旧事、新鲜事，我都慢慢听。", at: null }]);
+  }
+
+  const dateText = now ? new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "long", day: "numeric", weekday: "long" }).format(now) : "正在读取日期";
+  const dayPeriod = !now ? "" : now.getHours() < 6 ? "凌晨" : now.getHours() < 12 ? "上午" : now.getHours() < 18 ? "下午" : "晚上";
+
+  if (!consentMode) {
+    return <main className="consent-shell">
+      <section className="consent-card" aria-labelledby="consent-title">
+        <p className="consent-brand">心迹银龄 · 遥遥</p>
+        <h1 id="consent-title">今天想怎样聊？</h1>
+        <p className="consent-intro">请您自己选择。无论选哪一种，都可以正常聊天。</p>
+        <div className="consent-options">
+          <button type="button" onClick={() => setConsentMode("private")}>
+            <strong>只在这次聊天</strong>
+            <span>不保存聊天，也不用于健康关怀分析</span>
+          </button>
+          <button className="consent-care" type="button" onClick={() => setConsentMode("care")}>
+            <strong>生成关怀摘要</strong>
+            <span>保存本次聊天并用于健康关怀分析；家属看不到聊天全文，只有工作人员确认后的简短摘要</span>
+          </button>
+        </div>
+        <small>这不是疾病诊断。您可以返回这里为后续新会话重新选择；已经保存的会话不会因此自动删除。</small>
+      </section>
+    </main>;
+  }
 
   return (
     <main className="app-shell">
       <header className="topbar">
         <button className="brand" type="button" onClick={() => setActivePanel("home")}>遥遥</button>
-        <p className="welcome">王阿姨，{dayPeriod}好</p>
-        <div className="service-state"><span>{status}</span><small>本次对话不保存</small></div>
+        <p className="welcome">王阿姨，{dayPeriod ? `${dayPeriod}好` : "您好"}</p>
+        <div className="service-state"><span>{status}</span><small>{consentMode === "care" ? "已同意生成关怀摘要" : "本次对话不保存"}</small><button type="button" onClick={resetConversationConsent}>更改隐私选择</button></div>
       </header>
 
       {activePanel === "home" && (
@@ -209,7 +291,7 @@ export default function ElderCompanionPage() {
           </button>
 
           <button className="feature-tile feature-time" type="button" onClick={() => setActivePanel("time")}>
-            <strong className="tile-clock">{displayTime(now)}</strong>
+            <strong className="tile-clock">{now ? displayTime(now) : "--:--"}</strong>
             <span>现在时间</span>
           </button>
 
@@ -222,7 +304,27 @@ export default function ElderCompanionPage() {
             <strong>最新资讯</strong>
             <span>{news[0]?.title ?? "点一下听听今天的消息"}</span>
           </button>
+
+          <button className="feature-tile feature-emergency" type="button" disabled={emergencyState === "submitting" || emergencyState === "sent"} onClick={() => setEmergencyState("confirming")}>
+            <strong>{emergencyState === "sent" ? "求助已发出" : "紧急呼救"}</strong>
+            <span>{emergencyState === "sent" ? "家属和工作人员正在收到提醒" : "身体不舒服、跌倒或感到危险时点这里"}</span>
+          </button>
         </section>
+      )}
+
+      {emergencyState !== "idle" && (
+        <div className="emergency-overlay" role="presentation">
+          <section className={`emergency-dialog emergency-${emergencyState}`} role="alertdialog" aria-modal="true" aria-labelledby="emergency-title">
+            <h2 id="emergency-title">{emergencyState === "sent" ? "求助已发出" : emergencyState === "error" ? "发送没有成功" : "确认发出紧急求助？"}</h2>
+            <p>{emergencyMessage || "确认后，家属和工作人员都会收到紧急提醒。"}</p>
+            <div>
+              {emergencyState === "confirming" && <button className="emergency-confirm" type="button" onClick={() => { void submitEmergency(); }}>确认呼救</button>}
+              {emergencyState !== "submitting" && emergencyState !== "sent" && <button type="button" onClick={() => { setEmergencyState("idle"); setEmergencyMessage(""); }}>取消</button>}
+              {emergencyState === "error" && <button className="emergency-confirm" type="button" onClick={() => { void submitEmergency(); }}>重新发送</button>}
+              {emergencyState === "sent" && <button type="button" onClick={() => setEmergencyState("idle")}>我知道了</button>}
+            </div>
+          </section>
+        </div>
       )}
 
       {activePanel !== "home" && (
@@ -238,7 +340,7 @@ export default function ElderCompanionPage() {
                 {messages.map((message) => (
                   <article className={`message message-${message.role}`} key={message.id}>
                     <div>{message.content.split("\n").filter(Boolean).map((line, index) => <p key={index}>{line}</p>)}</div>
-                    <time>{displayTime(message.at)}</time>
+                    <time>{message.at ? displayTime(message.at) : "刚刚"}</time>
                   </article>
                 ))}
                 {busy && <div className="thinking" role="status">{progress}</div>}
@@ -267,7 +369,7 @@ export default function ElderCompanionPage() {
 
           {activePanel === "time" && (
             <div className="time-view">
-              <strong>{displayTime(now)}</strong>
+              <strong>{now ? displayTime(now) : "--:--"}</strong>
               <p>{dayPeriod}</p>
               <span>{dateText}</span>
             </div>

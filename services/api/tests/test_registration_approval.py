@@ -20,6 +20,13 @@ def test_registration_requires_admin_approval_before_login(client: TestClient, a
     assert "password" not in application
     assert "passwordHash" not in application
 
+    public_status = client.get(f"/api/auth/registration-applications/{application['id']}")
+    assert public_status.status_code == 200
+    assert public_status.json()["status"] == "pending"
+    assert "loginIdentifier" not in public_status.json()
+    assert "displayName" not in public_status.json()
+    assert "elderName" not in public_status.json()
+
     before_approval = client.post("/api/auth/login", json={"loginIdentifier": "zhao@example.com", "password": "safe-password-2026"})
     assert before_approval.status_code == 401
 
@@ -69,10 +76,17 @@ def test_approved_family_can_change_password_and_recovery_request_is_non_enumera
         json={"currentPassword": "safe-password-2026", "newPassword": "even-safer-password-2026"},
     )
     assert changed.status_code == 200
+    expired_session = client.get(
+        "/api/family/me/elders",
+        headers={"Authorization": f"Bearer {login['accessToken']}"},
+    )
+    assert expired_session.status_code == 401
+    assert expired_session.json()["detail"] == "密码已更新，请重新登录"
     assert client.post("/api/auth/login", json={"loginIdentifier": "zhao@example.com", "password": "safe-password-2026"}).status_code == 401
     assert client.post("/api/auth/login", json={"loginIdentifier": "zhao@example.com", "password": "even-safer-password-2026"}).status_code == 200
 
     known = client.post("/api/auth/password-recovery", json={"loginIdentifier": "zhao@example.com"})
     unknown = client.post("/api/auth/password-recovery", json={"loginIdentifier": "unknown@example.com"})
-    assert known.status_code == unknown.status_code == 200
+    assert known.status_code == unknown.status_code == 503
     assert known.json() == unknown.json()
+    assert "暂未开通" in known.json()["detail"]

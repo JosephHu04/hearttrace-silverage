@@ -14,9 +14,10 @@ from app.core.config import get_settings
 
 def create_access_token(*, actor_id: str, role: str) -> tuple[str, datetime]:
     settings = get_settings()
-    expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_exp_minutes)
+    issued_at = datetime.now(timezone.utc)
+    expires_at = issued_at + timedelta(minutes=settings.jwt_exp_minutes)
     token = jwt.encode(
-        {"sub": actor_id, "role": role, "exp": expires_at},
+        {"sub": actor_id, "role": role, "iat": issued_at.timestamp(), "exp": expires_at},
         settings.jwt_secret,
         algorithm=settings.jwt_algorithm,
     )

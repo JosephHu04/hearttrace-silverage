@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_exp_minutes: int = 60
     seed_demo_data: bool = True
+    enable_demo_login: bool = True
     cors_origins: list[str] = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
