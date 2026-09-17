@@ -4,15 +4,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
-import sys
 import time
-from pathlib import Path
+from runtime import configure_environment
 
 
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "services" / "api"))
-os.chdir(ROOT / "services" / "api")
+ROOT = configure_environment()
 
 from app.db.session import SessionLocal  # noqa: E402
 from app.services.analysis_pipeline import process_next_analysis_event  # noqa: E402

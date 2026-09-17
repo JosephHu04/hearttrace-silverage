@@ -16,6 +16,13 @@
 }
 
 * { box-sizing: border-box; }
+.account-setup { padding: 20px; border-bottom: 1px solid var(--line); }
+.account-setup details { margin-bottom: 15px; padding: 15px; border: 1px solid var(--line); border-radius: 8px; }
+.account-setup summary { cursor: pointer; font-weight: 700; }
+.account-setup p { color: var(--muted); font-size: .85rem; }
+.account-setup form { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; align-items: end; }
+.account-setup label { display: grid; gap: 7px; font-size: .85rem; }
+.account-setup input { min-width: 0; padding: 10px; border: 1px solid var(--line); border-radius: 6px; }
 
 body {
   margin: 0;
@@ -90,6 +97,34 @@ nav { display: grid; gap: 5px; }
 .actor strong, .actor small { display: block; }
 .actor strong { font-size: .82rem; }
 .actor small { margin-top: 2px; color: var(--muted); font-size: .7rem; }
+.actor-logout { margin-left: 12px; padding: 6px 9px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); background: #fff; font-size: .75rem; }
+.actor-logout:hover { color: var(--red); border-color: #edc4c6; }
+
+.admin-auth-page { min-height: 100vh; padding: 48px max(24px, calc((100vw - 1120px) / 2)); background: #f3f5f7; }
+.admin-auth-brand { display: flex; align-items: center; gap: 12px; color: var(--navy); }
+.admin-auth-brand > span { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 11px 11px 11px 3px; background: #f1c675; font-weight: 900; }
+.admin-auth-brand strong, .admin-auth-brand small { display: block; }
+.admin-auth-brand strong { font-size: 1.05rem; }
+.admin-auth-brand small { margin-top: 2px; color: var(--muted); font-size: .75rem; }
+.admin-auth-layout { display: grid; grid-template-columns: 1fr minmax(360px, 430px); gap: 64px; align-items: center; margin-top: min(13vh, 120px); }
+.admin-auth-intro > p, .admin-auth-eyebrow { margin: 0; color: var(--blue); font-size: .8rem; font-weight: 800; letter-spacing: .08em; }
+.admin-auth-intro h1 { margin: 20px 0; color: var(--navy); font-size: clamp(2rem, 3.7vw, 3.5rem); line-height: 1.2; }
+.admin-auth-intro > span { display: block; max-width: 510px; color: var(--muted); line-height: 1.8; font-size: .95rem; }
+.admin-auth-card { padding: 36px; border: 1px solid var(--line); border-radius: 16px; background: #fff; box-shadow: 0 18px 42px rgba(23, 36, 56, .06); }
+.security-card { max-width: 520px; margin: 40px auto; }
+.admin-auth-card h2 { margin: 9px 0 8px; color: var(--navy); font-size: 1.6rem; }
+.admin-auth-card > p:not(.admin-auth-eyebrow) { color: var(--muted); line-height: 1.6; font-size: .82rem; }
+.admin-auth-card form { display: grid; gap: 20px; margin-top: 30px; }
+.admin-auth-card label { display: grid; gap: 8px; color: var(--ink); font-size: .82rem; font-weight: 700; }
+.admin-auth-card input { width: 100%; height: 46px; padding: 0 13px; border: 1px solid #cbd4de; border-radius: 8px; color: var(--ink); background: #fff; font-weight: 400; }
+.admin-auth-card form button, .admin-auth-loading button { min-height: 45px; padding: 9px 16px; border: 0; border-radius: 8px; color: #fff; background: var(--blue); font-weight: 800; }
+.admin-auth-card form button:disabled { opacity: .6; cursor: wait; }
+.admin-auth-card small { display: block; margin-top: 24px; color: var(--muted); line-height: 1.6; font-size: .72rem; }
+.admin-auth-notice { margin: 18px 0 0; padding: 10px; border-radius: 8px; color: var(--red); background: var(--red-soft); font-size: .8rem; }
+.admin-auth-loading { display: grid; justify-items: center; align-content: center; gap: 15px; min-height: 100vh; padding: 24px; color: var(--muted); text-align: center; }
+.admin-auth-loading p { margin: 0; }
+
+@media (max-width: 760px) { .admin-auth-layout { grid-template-columns: 1fr; gap: 36px; margin-top: 60px; }.admin-auth-card { padding: 26px; } }
 
 .notice { display: flex; align-items: center; gap: 9px; margin: 22px 0 16px; padding: 10px 12px; border: 1px solid #cfdbe6; border-radius: 8px; color: #3e5871; background: #edf4f9; font-size: .8rem; }
 .notice b { width: 18px; height: 18px; display: grid; place-items: center; border-radius: 4px; color: #fff; background: var(--blue); font-size: .68rem; }

@@ -1,6 +1,13 @@
-import type { ActionResult, AuthMessage, FamilyAction, FamilyCarePlanItem, FamilyElderList, FamilyToday, FamilyTrend, LoginResult, NotificationList, NotificationReadResult, RegistrationApplication } from "./types";
+import type { ActionResult, AuthMessage, FamilyAction, FamilyCarePlanItem, FamilyElderList, FamilyToday, FamilyTrend, LoginResult, NotificationList, NotificationReadResult, RegistrationApplication, RegistrationApplicationStatus } from "./types";
 
 const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
 
 async function request<T>(path: string, token?: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${apiBase}${path}`, {
@@ -14,7 +21,7 @@ async function request<T>(path: string, token?: string, init?: RequestInit): Pro
 
   if (!response.ok) {
     const body = await response.json().catch(() => null) as { detail?: string } | null;
-    throw new Error(body?.detail ?? `请求失败：${response.status}`);
+    throw new ApiError(body?.detail ?? `请求失败：${response.status}`, response.status);
   }
   return response.json() as Promise<T>;
 }
@@ -65,10 +72,11 @@ export function markNotificationRead(token: string, notificationId: string) {
   });
 }
 
-export function recordFamilyAction(token: string | null, riskEventId: string, action: FamilyAction) {
-  return request<ActionResult>(`/api/family/risk-events/${riskEventId}/actions`, token ?? undefined, {
+export function recordFamilyAction(token: string, elderId: string, riskEventId: string | null, action: FamilyAction, requestId: string) {
+  const path = riskEventId ? `/api/family/risk-events/${riskEventId}/actions` : `/api/family/elders/${elderId}/actions`;
+  return request<ActionResult>(path, token, {
     method: "POST",
-    body: JSON.stringify({ requestId: crypto.randomUUID(), action })
+    body: JSON.stringify({ requestId, action })
   });
 }
 
@@ -87,7 +95,7 @@ export function createRegistrationApplication(body: {
 }
 
 export function getRegistrationApplication(applicationId: string) {
-  return request<RegistrationApplication>(`/api/auth/registration-applications/${applicationId}`);
+  return request<RegistrationApplicationStatus>(`/api/auth/registration-applications/${applicationId}`);
 }
 
 export function loginWithPassword(loginIdentifier: string, password: string) {

@@ -1,8 +1,9 @@
 import os
 
-os.environ["DATABASE_URL"] = "sqlite+pysqlite:///:memory:"
+os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL", "sqlite+pysqlite:///:memory:")
 os.environ["JWT_SECRET"] = "test-secret-not-for-production-32-bytes-minimum"
 os.environ["SEED_DEMO_DATA"] = "true"
+os.environ["DASHSCOPE_API_KEY"] = ""
 
 import pytest
 from fastapi.testclient import TestClient

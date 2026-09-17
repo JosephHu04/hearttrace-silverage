@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import timezone
 from typing import Annotated, Optional
 
 from fastapi import Depends, HTTPException, status
@@ -27,6 +28,15 @@ def resolve_actor_from_token(token: str, db: Session) -> User:
     actor = db.get(User, actor_id)
     if actor is None or not actor.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="账号不存在或已停用")
+    if actor.password_changed_at is not None:
+        issued_at = payload.get("iat")
+        if not isinstance(issued_at, (int, float)):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="登录状态已失效，请重新登录")
+        password_changed_at = actor.password_changed_at
+        if password_changed_at.tzinfo is None:
+            password_changed_at = password_changed_at.replace(tzinfo=timezone.utc)
+        if float(issued_at) <= password_changed_at.timestamp():
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="密码已更新，请重新登录")
     return actor
 
 

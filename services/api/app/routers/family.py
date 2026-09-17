@@ -1,12 +1,16 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from app.db.models import (
     DailyInsight,
+    ConversationSession,
+    OutboxEvent,
     EmergencyEvent,
     ElderProfile,
     FamilyActionRecord,
@@ -76,8 +80,19 @@ def family_today(elder_id: str, db: DbSession, actor: FamilyActor) -> FamilyToda
         .order_by(DailyInsight.created_at.desc())
         .limit(1)
     )
-    if insight is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="尚无可查看的今日摘要")
+    summary_state = "empty"
+    if insight is not None:
+        recorded = insight.created_at.replace(tzinfo=timezone.utc) if insight.created_at.tzinfo is None else insight.created_at
+        summary_state = "ready" if recorded.astimezone(ZoneInfo("Asia/Shanghai")).date() == utc_now().astimezone(ZoneInfo("Asia/Shanghai")).date() else "historical"
+    else:
+        task = db.scalar(select(OutboxEvent).join(ConversationSession, OutboxEvent.aggregate_id == ConversationSession.id)
+                         .where(ConversationSession.elder_id == elder_id, OutboxEvent.event_type == "conversation.analysis.requested")
+                         .order_by(OutboxEvent.created_at.desc()).limit(1))
+        if task is not None:
+            summary_state = "analysis_failed" if task.status == "failed" else "pending_review" if task.status == "processed" else "pending_analysis"
+            session = db.get(ConversationSession, task.aggregate_id)
+            if session is not None and not session.allow_analysis:
+                summary_state = "analysis_stopped"
 
     risk_event = db.scalar(
         select(RiskEvent)
@@ -96,10 +111,9 @@ def family_today(elder_id: str, db: DbSession, actor: FamilyActor) -> FamilyToda
         recent_actions = list(
             db.scalars(
                 select(FamilyActionRecord)
-                .join(RiskEvent, RiskEvent.id == FamilyActionRecord.risk_event_id)
                 .where(
                     FamilyActionRecord.family_id == actor.id,
-                    RiskEvent.elder_id == elder_id,
+                    FamilyActionRecord.elder_id == elder_id,
                 )
                 .order_by(FamilyActionRecord.created_at.desc())
                 .limit(5)
@@ -117,14 +131,16 @@ def family_today(elder_id: str, db: DbSession, actor: FamilyActor) -> FamilyToda
     return FamilyTodayOut(
         elder=elder_out(elder, profile),
         status=FamilyStatusOut(
-            level=insight.level,
-            label=insight.label,
-            headline=insight.headline,
-            summary=insight.summary,
-            score=insight.score,
-            baseline_delta=insight.baseline_delta,
+            level=insight.level if insight else None,
+            label=insight.label if insight else "尚无已发布摘要",
+            headline=insight.headline if insight else "从一次本人愿意的交流开始。",
+            summary=insight.summary if insight else "目前还没有可查看的关怀摘要。老人选择授权聊天后，摘要会在完成分析与复核后显示。",
+            score=None,
+            baseline_delta=None,
+            summary_state=summary_state,
+            generated_at=insight.created_at if insight else None,
         ),
-        topics=[FamilyTopicOut.model_validate(item) for item in insight.topics],
+        topics=[FamilyTopicOut.model_validate(item) for item in insight.topics] if insight else [],
         safety=FamilySafetyOut(
             has_active_emergency=active_emergency is not None,
             message=(
@@ -132,7 +148,7 @@ def family_today(elder_id: str, db: DbSession, actor: FamilyActor) -> FamilyToda
                 if active_emergency is not None and active_emergency.status == "acknowledged"
                 else "老人已发出紧急求助，请尽快确认其安全"
                 if active_emergency is not None
-                else insight.safety_message
+                else insight.safety_message if insight else "暂无已上报的紧急求助事件"
             ),
             status=active_emergency.status if active_emergency is not None else None,
             source=active_emergency.source if active_emergency is not None else None,
@@ -170,7 +186,7 @@ def family_trend(
         action="family.trend_viewed",
         target_type="elder",
         target_id=elder_id,
-        metadata={"scope": "daily_summary", "days": days, "content": "daily_scores_only"},
+        metadata={"scope": "daily_summary", "days": days, "content": "published_summary_status_only"},
     )
     db.commit()
     return FamilyTrendOut(
@@ -178,7 +194,7 @@ def family_trend(
         items=[
             FamilyTrendPointOut(
                 recorded_at=item.created_at,
-                score=item.score,
+                score=None,
                 level=item.level,
                 label=item.label,
             )
@@ -271,32 +287,56 @@ def record_family_action(
     db: DbSession,
     actor: FamilyActor,
 ) -> FamilyActionResult:
-    existing = db.scalar(select(FamilyActionRecord).where(FamilyActionRecord.request_id == body.request_id))
-    if existing is not None:
-        if existing.family_id != actor.id or existing.risk_event_id != event_id or existing.action != body.action.value:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="幂等键已用于其他家属行动")
-        return FamilyActionResult(action=existing.action, recorded_at=existing.created_at, duplicate=True)
-
     event = db.get(RiskEvent, event_id)
     if event is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="风险事件不存在")
-    active_grant(db, actor.id, event.elder_id, "care_actions")
+    return save_family_action(db, actor.id, event.elder_id, event.id, body)
+
+
+@router.post("/elders/{elder_id}/actions", response_model=FamilyActionResult)
+def record_daily_family_action(elder_id: str, body: FamilyActionRequest, db: DbSession, actor: FamilyActor) -> FamilyActionResult:
+    active_grant(db, actor.id, elder_id, "care_actions")
+    if body.action.value not in {"contacted", "video_planned"}:
+        raise HTTPException(status_code=400, detail="专业转介请通过具体风险事件申请")
+    return save_family_action(db, actor.id, elder_id, None, body)
+
+
+def save_family_action(db: DbSession, family_id: str, elder_id: str, event_id: str | None, body: FamilyActionRequest) -> FamilyActionResult:
+    active_grant(db, family_id, elder_id, "care_actions")
+
+    def replay(existing: FamilyActionRecord) -> FamilyActionResult:
+        if (existing.family_id, existing.elder_id, existing.risk_event_id, existing.action) != (family_id, elder_id, event_id, body.action.value):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="幂等键已用于其他家属行动")
+        return FamilyActionResult(action=existing.action, recorded_at=existing.created_at, duplicate=True)
+
+    existing = db.scalar(select(FamilyActionRecord).where(FamilyActionRecord.request_id == body.request_id))
+    if existing is not None:
+        return replay(existing)
 
     record = FamilyActionRecord(
         request_id=body.request_id,
-        risk_event_id=event.id,
-        family_id=actor.id,
+        risk_event_id=event_id,
+        elder_id=elder_id,
+        family_id=family_id,
         action=body.action.value,
     )
     db.add(record)
     add_audit_log(
         db,
-        actor_id=actor.id,
+        actor_id=family_id,
         action=f"family.{body.action.value}",
-        target_type="risk_event",
-        target_id=event.id,
-        metadata={"elderId": event.elder_id},
+        target_type="risk_event" if event_id else "elder",
+        target_id=event_id or elder_id,
+        metadata={"elderId": elder_id},
     )
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        active_grant(db, family_id, elder_id, "care_actions")
+        existing = db.scalar(select(FamilyActionRecord).where(FamilyActionRecord.request_id == body.request_id))
+        if existing is None:
+            raise
+        return replay(existing)
     db.refresh(record)
     return FamilyActionResult(action=record.action, recorded_at=record.created_at)

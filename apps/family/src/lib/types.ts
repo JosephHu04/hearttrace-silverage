@@ -13,12 +13,15 @@ export type FamilyToday = {
     age: number;
   };
   status: {
-    level: ConcernLevel;
+    level: ConcernLevel | null;
     label: string;
     headline: string;
     summary: string;
-    score: number;
-    baselineDelta: number;
+    score: number | null;
+    baselineDelta: number | null;
+    summaryState: "empty" | "pending_analysis" | "pending_review" | "analysis_failed" | "analysis_stopped" | "ready" | "historical";
+    generatedAt: string | null;
+    scoreSource: string;
   };
   topics: Topic[];
   safety: {
@@ -43,7 +46,7 @@ export type FamilyAction = "contacted" | "video_planned" | "referral_requested";
 
 export type FamilyTrendPoint = {
   recordedAt: string;
-  score: number;
+  score: number | null;
   level: ConcernLevel;
   label: string;
 };
@@ -82,6 +85,11 @@ export type RegistrationApplication = {
   reviewedAt: string | null;
   createdAt: string;
 };
+
+export type RegistrationApplicationStatus = Pick<
+  RegistrationApplication,
+  "id" | "status" | "reviewNote" | "reviewedAt" | "createdAt"
+>;
 
 export type AuthMessage = { message: string };
 

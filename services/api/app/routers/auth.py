@@ -1,12 +1,12 @@
-from datetime import timedelta
-import secrets
-
 from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 
+from app.core.config import get_settings
 from app.core.security import create_access_token, hash_one_time_token, hash_password, verify_password
-from app.db.models import PasswordRecoveryToken, RegistrationApplication, User, utc_now, uuid_string
+from app.db.models import PasswordRecoveryToken, RegistrationApplication, User, utc_now
 from app.dependencies import CurrentActor, DbSession
+from app.services.audit import add_audit_log
 from app.schemas import (
     ActorOut,
     DemoLoginRequest,
@@ -17,12 +17,14 @@ from app.schemas import (
     PasswordRecoveryRequest,
     RegistrationApplicationCreate,
     RegistrationApplicationOut,
+    RegistrationApplicationStatusOut,
     RegistrationStatus,
     TokenOut,
 )
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+settings = get_settings()
 
 
 def normalize_identifier(value: str) -> str:
@@ -46,6 +48,8 @@ def application_out(application: RegistrationApplication) -> RegistrationApplica
 
 @router.post("/demo-login", response_model=TokenOut)
 def demo_login(body: DemoLoginRequest, db: DbSession) -> TokenOut:
+    if not settings.enable_demo_login:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="演示登录未启用")
     actor = db.get(User, body.actor_id)
     if actor is None or not actor.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="演示账号不存在或已停用")
@@ -76,17 +80,21 @@ def create_registration_application(body: RegistrationApplicationCreate, db: DbS
         status=RegistrationStatus.pending.value,
     )
     db.add(application)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="该联系方式已提交过申请或已绑定账号") from exc
     db.refresh(application)
     return application_out(application)
 
 
-@router.get("/registration-applications/{application_id}", response_model=RegistrationApplicationOut)
-def registration_application_status(application_id: str, db: DbSession) -> RegistrationApplicationOut:
+@router.get("/registration-applications/{application_id}", response_model=RegistrationApplicationStatusOut)
+def registration_application_status(application_id: str, db: DbSession) -> RegistrationApplicationStatusOut:
     application = db.get(RegistrationApplication, application_id)
     if application is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="未找到该注册申请")
-    return application_out(application)
+    return RegistrationApplicationStatusOut.model_validate(application)
 
 
 @router.post("/login", response_model=TokenOut)
@@ -103,29 +111,28 @@ def login(body: LoginRequest, db: DbSession) -> TokenOut:
 def change_password(body: PasswordChangeRequest, db: DbSession, actor: CurrentActor) -> MessageOut:
     if not verify_password(body.current_password, actor.password_hash):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="当前密码不正确")
-    actor.password_hash = hash_password(body.new_password)
-    actor.password_changed_at = utc_now()
+    if body.current_password == body.new_password:
+        raise HTTPException(status_code=400, detail="新密码不能与当前密码相同")
+    changed = db.execute(update(User).where(User.id == actor.id, User.password_hash == actor.password_hash).values(
+        password_hash=hash_password(body.new_password), password_changed_at=utc_now(),
+    ).execution_options(synchronize_session=False))
+    if changed.rowcount != 1:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="密码已被更新，请使用最新密码重新登录")
+    add_audit_log(db, actor_id=actor.id, action="account.password_changed", target_type="user", target_id=actor.id, metadata={"sessionsRevoked": True})
     db.commit()
-    return MessageOut(message="密码已更新，请在其他设备重新登录")
+    return MessageOut(message="密码已更新，请在所有设备重新登录")
 
 
 @router.post("/password-recovery", response_model=MessageOut)
 def request_password_recovery(body: PasswordRecoveryRequest, db: DbSession) -> MessageOut:
-    identifier = normalize_identifier(body.login_identifier)
-    actor = db.scalar(select(User).where(User.login_identifier == identifier))
-    if actor is not None and actor.is_active:
-        raw_token = secrets.token_urlsafe(32)
-        db.add(
-            PasswordRecoveryToken(
-                user_id=actor.id,
-                token_hash=hash_one_time_token(raw_token),
-                expires_at=utc_now() + timedelta(minutes=15),
-            )
-        )
-        db.commit()
-        # Delivery is intentionally delegated to the configured email/SMS adapter.
-        # Never return the raw recovery token from this public endpoint.
-    return MessageOut(message="如该联系方式已注册，重置说明将发送至已绑定渠道")
+    # Do not claim delivery or create unusable tokens until a real SMS/email
+    # transport, rate limit and failure handling are implemented.
+    del body, db
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="自助密码找回暂未开通，请联系管理员核验身份",
+    )
 
 
 @router.post("/password-recovery/confirm", response_model=MessageOut)
@@ -145,6 +152,13 @@ def confirm_password_recovery(body: PasswordRecoveryConfirm, db: DbSession) -> M
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="重置链接无效或已过期")
     actor.password_hash = hash_password(body.new_password)
     actor.password_changed_at = now
-    recovery.consumed_at = now
+    db.execute(
+        update(PasswordRecoveryToken)
+        .where(
+            PasswordRecoveryToken.user_id == actor.id,
+            PasswordRecoveryToken.consumed_at.is_(None),
+        )
+        .values(consumed_at=now)
+    )
     db.commit()
     return MessageOut(message="密码已重置，请使用新密码登录")

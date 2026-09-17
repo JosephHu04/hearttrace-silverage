@@ -1,0 +1,67 @@
+name: hearttrace
+x-backend: &backend
+  build:
+    context: ..
+    dockerfile: infra/Dockerfile.api
+  environment: &environment
+    ENVIRONMENT: production
+    DATABASE_URL: postgresql+psycopg://hearttrace:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/hearttrace
+    JWT_SECRET: ${JWT_SECRET:?Set a unique JWT_SECRET}
+    SEED_DEMO_DATA: "false"
+    ENABLE_DEMO_LOGIN: "false"
+    DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:?Set DASHSCOPE_API_KEY}
+    DASHSCOPE_MODEL: ${DASHSCOPE_MODEL:-qwen-plus}
+    DASHSCOPE_COMPANION_MODEL: ${DASHSCOPE_COMPANION_MODEL:-qwen3.8-flash}
+    CORS_ORIGINS: ${CORS_ORIGINS:-["http://127.0.0.1:3010","http://127.0.0.1:3011","http://127.0.0.1:3012"]}
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hearttrace
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_DB: hearttrace
+    volumes:
+      - business-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hearttrace -d hearttrace"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  migrate:
+    <<: *backend
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      db:
+        condition: service_healthy
+  api:
+    <<: *backend
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8010:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/ready', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+  analysis:
+    <<: *backend
+    restart: unless-stopped
+    command: ["python", "/app/services/worker/analysis_worker.py"]
+    depends_on:
+      api:
+        condition: service_healthy
+  notifications:
+    <<: *backend
+    restart: unless-stopped
+    command: ["python", "/app/services/worker/notification_worker.py"]
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  business-data:

@@ -29,7 +29,7 @@ def seed_demo_data(db: Session) -> None:
     add_missing(
         db,
         [
-            User(id="staff-admin-001", display_name="周老师", role="admin"),
+            User(id="staff-admin-001", display_name="周老师", role="admin", login_identifier="admin.demo@hearttrace.local", password_hash=hash_password("AdminDemo2026!")),
             User(id="staff-professional-001", display_name="许老师", role="professional"),
             User(id="family-demo-001", display_name="林女士", role="family", login_identifier="lin.demo@hearttrace.local", password_hash=hash_password("FamilyDemo2026!")),
             User(id="family-demo-002", display_name="王先生", role="family", login_identifier="wang.demo@hearttrace.local", password_hash=hash_password("FamilyDemo2026!")),
@@ -41,6 +41,9 @@ def seed_demo_data(db: Session) -> None:
     )
     db.flush()
     for actor_id, identifier, password in [
+        ("staff-admin-001", "admin.demo@hearttrace.local", "AdminDemo2026!"),
+        ("elder-demo-001", "chen.demo@hearttrace.local", "ElderDemo2026!"),
+        ("elder-demo-002", "li.demo@hearttrace.local", "ElderDemo2026!"),
         ("family-demo-001", "lin.demo@hearttrace.local", "FamilyDemo2026!"),
         ("family-demo-002", "wang.demo@hearttrace.local", "FamilyDemo2026!"),
         ("family-no-access-001", "noaccess.demo@hearttrace.local", "NoAccessDemo2026!"),
@@ -68,7 +71,7 @@ def seed_demo_data(db: Session) -> None:
                 id="insight-demo-001", elder_id="elder-demo-001", level="yellow", label="需要轻度关怀",
                 headline="陈奶奶今天更适合收到一句不着急的问候。",
                 summary="系统观察到她昨晚提到睡眠不太踏实；今天的交流中也出现了想家人的话题。没有发现紧急安全信号。",
-                score=72, baseline_delta=-6,
+                score=None, baseline_delta=None,
                 topics=[
                     {"name": "睡眠与作息", "note": "轻度关注", "tone": "lavender"},
                     {"name": "想念家人", "note": "建议联系", "tone": "peach"},
@@ -80,7 +83,7 @@ def seed_demo_data(db: Session) -> None:
                 id="insight-demo-002", elder_id="elder-demo-002", level="green", label="状态平稳",
                 headline="李爷爷今天精神不错，可以分享一些日常趣事。",
                 summary="今日作息和交流频率接近个人基线，出现了散步与下棋等积极主题。没有发现紧急安全信号。",
-                score=84, baseline_delta=2,
+                score=None, baseline_delta=None,
                 topics=[
                     {"name": "公园散步", "note": "正向事件", "tone": "mint"},
                     {"name": "和老友下棋", "note": "保持联系", "tone": "lavender"},
@@ -91,37 +94,37 @@ def seed_demo_data(db: Session) -> None:
             DailyInsight(
                 id="insight-demo-001-d1", elder_id="elder-demo-001", level="yellow", label="需要轻度关怀",
                 headline="陈奶奶昨天的交流较为平稳。", summary="仅供趋势联调的历史结构化摘要。",
-                score=76, baseline_delta=-2, topics=[], has_active_emergency=False,
+                score=None, baseline_delta=None, topics=[], has_active_emergency=False,
                 safety_message="暂无紧急安全事件", created_at=now - timedelta(days=1),
             ),
             DailyInsight(
                 id="insight-demo-001-d2", elder_id="elder-demo-001", level="green", label="状态平稳",
                 headline="陈奶奶前天状态平稳。", summary="仅供趋势联调的历史结构化摘要。",
-                score=79, baseline_delta=1, topics=[], has_active_emergency=False,
+                score=None, baseline_delta=None, topics=[], has_active_emergency=False,
                 safety_message="暂无紧急安全事件", created_at=now - timedelta(days=2),
             ),
             DailyInsight(
                 id="insight-demo-001-d3", elder_id="elder-demo-001", level="yellow", label="需要轻度关怀",
                 headline="陈奶奶三天前需要温和关注。", summary="仅供趋势联调的历史结构化摘要。",
-                score=71, baseline_delta=-7, topics=[], has_active_emergency=False,
+                score=None, baseline_delta=None, topics=[], has_active_emergency=False,
                 safety_message="暂无紧急安全事件", created_at=now - timedelta(days=3),
             ),
             DailyInsight(
                 id="insight-demo-001-d4", elder_id="elder-demo-001", level="green", label="状态平稳",
                 headline="陈奶奶四天前状态平稳。", summary="仅供趋势联调的历史结构化摘要。",
-                score=82, baseline_delta=2, topics=[], has_active_emergency=False,
+                score=None, baseline_delta=None, topics=[], has_active_emergency=False,
                 safety_message="暂无紧急安全事件", created_at=now - timedelta(days=4),
             ),
             DailyInsight(
                 id="insight-demo-001-d5", elder_id="elder-demo-001", level="green", label="状态平稳",
                 headline="陈奶奶五天前状态平稳。", summary="仅供趋势联调的历史结构化摘要。",
-                score=80, baseline_delta=0, topics=[], has_active_emergency=False,
+                score=None, baseline_delta=None, topics=[], has_active_emergency=False,
                 safety_message="暂无紧急安全事件", created_at=now - timedelta(days=5),
             ),
             DailyInsight(
                 id="insight-demo-001-d6", elder_id="elder-demo-001", level="yellow", label="需要轻度关怀",
                 headline="陈奶奶六天前略有波动。", summary="仅供趋势联调的历史结构化摘要。",
-                score=74, baseline_delta=-4, topics=[], has_active_emergency=False,
+                score=None, baseline_delta=None, topics=[], has_active_emergency=False,
                 safety_message="暂无紧急安全事件", created_at=now - timedelta(days=6),
             ),
         ],

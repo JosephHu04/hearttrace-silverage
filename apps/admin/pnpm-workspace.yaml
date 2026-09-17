@@ -1,0 +1,11 @@
+packages:
+  - "."
+
+overrides:
+  postcss: 8.5.28
+
+onlyBuiltDependencies:
+  - unrs-resolver
+
+allowBuilds:
+  unrs-resolver: true

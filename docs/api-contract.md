@@ -24,7 +24,7 @@
 | `POST /api/admin/family-grants/{familyId}/{elderId}/actions` | 管理端 | 调整范围、撤销或重新启用授权，使用 expectedVersion 防并发覆盖 |
 | `POST /api/auth/login` | 家属端、管理端 | 密码登录并获得短期访问令牌 |
 | `POST /api/auth/password/change` | 已登录用户 | 校验当前密码后修改密码 |
-| `POST /api/auth/password-recovery` | 家属端 | 请求向已绑定渠道发送一次性重置说明；响应不泄露账号是否存在 |
+| `POST /api/auth/password-recovery` | 家属端 | 当前发送渠道未接入，统一返回 503（不泄露账号是否存在）；接入短信/邮件、限流与失败重试后才开放令牌签发 |
 | `POST /api/auth/password-recovery/confirm` | 家属端 | 消费 15 分钟的一次性令牌并重置密码 |
 | `GET /api/notifications/me` | 已登录用户 | 获取自己的站内通知、未读数量和分页结果 |
 | `POST /api/notifications/{id}/read` | 通知接收人 | 幂等标记自己的通知为已读 |

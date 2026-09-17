@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { changeFamilyGrant, demoLogin, getAuditLogs, getElderAccounts, getEmergencyQueue, getFamilyGrants, getNotifications, getRegistrationApplications, getRiskDetail, getRiskQueue, markNotificationRead, performEmergencyAction, performRiskAction, reviewRegistrationApplication } from "@/lib/admin-api";
+import { useRouter } from "next/navigation";
+import { ApiError, changeFamilyGrant, getAuditLogs, getElderAccounts, getEmergencyQueue, getFamilyGrants, getNotifications, getRegistrationApplications, getRiskDetail, getRiskQueue, markNotificationRead, performEmergencyAction, performRiskAction, reviewRegistrationApplication } from "@/lib/admin-api";
+import { clearAdminSession, readAdminSession } from "@/lib/admin-session";
+import { AccountSetup } from "./account-setup";
 import type { Actor, AuditFilters, AuditListResponse, AuthorizationScope, ElderAccount, EmergencyAction, EmergencyEvent, EmergencyStatus, FamilyGrant, GrantAction, NotificationCategory, NotificationItem, NotificationListResponse, RegistrationApplication, RiskAction, RiskDetail, RiskListItem, RiskStatus } from "@/lib/types";
 
 type AdminView = "risk" | "emergency" | "relationships" | "notifications" | "audit" | "registrations";
@@ -9,6 +12,7 @@ type AdminView = "risk" | "emergency" | "relationships" | "notifications" | "aud
 const emptyAuditFilters: AuditFilters = { actorId: "", action: "", targetType: "", targetId: "", page: 1, perPage: 25 };
 
 const auditActionLabels: Record<string, string> = {
+  "account.password_changed": "本人修改登录密码",
   "risk.viewed": "查看风险详情",
   "risk.claim": "认领风险事件",
   "risk.begin_review": "开始人工复核",
@@ -128,6 +132,7 @@ function formatTime(value: string | null) {
 }
 
 export default function AdminDashboard() {
+  const router = useRouter();
   const [activeView, setActiveView] = useState<AdminView>("risk");
   const [actor, setActor] = useState<Actor | null>(null);
   const [token, setToken] = useState("");
@@ -158,43 +163,67 @@ export default function AdminDashboard() {
   const [notificationUnreadOnly, setNotificationUnreadOnly] = useState(false);
   const [notificationLoading, setNotificationLoading] = useState(false);
   const [notificationBusy, setNotificationBusy] = useState<string | null>(null);
+  const [authorized, setAuthorized] = useState(false);
+
+  useEffect(() => {
+    const expire = () => {
+      clearAdminSession();
+      setAuthorized(false);
+      setToken("");
+      setActor(null);
+      router.replace("/account");
+    };
+    window.addEventListener("hearttrace.admin.unauthorized", expire);
+    return () => window.removeEventListener("hearttrace.admin.unauthorized", expire);
+  }, [router]);
 
   useEffect(() => {
     let active = true;
     async function boot() {
+      const session = readAdminSession();
+      if (!session) {
+        router.replace("/account");
+        return;
+      }
       try {
-        const login = await demoLogin();
+        // Verify the stored token against an admin-only endpoint before revealing any workbench data.
+        const registrationQueue = await getRegistrationApplications(session.accessToken);
         if (!active) return;
-        setActor(login.actor);
-        setToken(login.accessToken);
-        const queue = await getRiskQueue(login.accessToken);
+        setActor(session.actor);
+        setToken(session.accessToken);
+        setAuthorized(true);
+        setApplications(registrationQueue.items);
+        const queue = await getRiskQueue(session.accessToken);
         if (!active) return;
         setRisks(queue.items);
-        const registrationQueue = await getRegistrationApplications(login.accessToken);
-        if (!active) return;
-        setApplications(registrationQueue.items);
-        const emergencyQueue = await getEmergencyQueue(login.accessToken);
+        const emergencyQueue = await getEmergencyQueue(session.accessToken);
         if (!active) return;
         setEmergencies(emergencyQueue.items);
         setSelectedEmergency(emergencyQueue.items[0] ?? null);
-        const elders = await getElderAccounts(login.accessToken);
+        const elders = await getElderAccounts(session.accessToken);
         if (!active) return;
         setElderAccounts(elders.items);
-        const grantQueue = await getFamilyGrants(login.accessToken);
+        const grantQueue = await getFamilyGrants(session.accessToken);
         if (!active) return;
         setGrants(grantQueue.items);
         setGrantDrafts(Object.fromEntries(grantQueue.items.map((grant) => [`${grant.familyId}:${grant.elderId}`, grant.scopes])));
-        const notificationQueue = await getNotifications(login.accessToken);
+        const notificationQueue = await getNotifications(session.accessToken);
         if (!active) return;
         setNotifications(notificationQueue);
         if (queue.items[0]) {
-          const detail = await getRiskDetail(login.accessToken, queue.items[0].id);
+          const detail = await getRiskDetail(session.accessToken, queue.items[0].id);
           if (!active) return;
           setSelected(detail);
         }
         setNotice("已连接真实 API · 当前仅展示结构化证据");
       } catch (cause) {
         if (!active) return;
+        if (cause instanceof ApiError && (cause.status === 401 || cause.status === 403)) {
+          clearAdminSession();
+          setAuthorized(false);
+          router.replace("/account");
+          return;
+        }
         setError(cause instanceof Error ? cause.message : "服务暂时不可用");
         setNotice("无法连接共享业务后端");
       } finally {
@@ -205,7 +234,7 @@ export default function AdminDashboard() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [router]);
 
   const activeCount = useMemo(
     () => risks.filter((item) => !["resolved", "false_positive", "closed"].includes(item.status)).length,
@@ -354,6 +383,14 @@ export default function AdminDashboard() {
   const auditPageCount = Math.max(1, Math.ceil(audits.total / audits.perPage));
   const notificationPageCount = Math.max(1, Math.ceil(notifications.total / notifications.perPage));
 
+  const logout = () => {
+    clearAdminSession();
+    setAuthorized(false);
+    setToken("");
+    setActor(null);
+    router.replace("/account");
+  };
+
   const reviewApplication = async (application: RegistrationApplication, decision: "approved" | "rejected") => {
     if (!token) return;
     const elderId = applicationElders[application.id];
@@ -437,6 +474,8 @@ export default function AdminDashboard() {
     }
   };
 
+  if (!authorized) return <main className="admin-auth-loading" role="status">{error ? <><p>暂时无法验证管理身份：{error}</p><button onClick={() => window.location.reload()}>重试连接</button></> : "正在验证管理身份…"}</main>;
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -460,7 +499,7 @@ export default function AdminDashboard() {
       <section className="workspace">
         <header className="topbar">
           <div><p>{viewHeadings[activeView].eyebrow}</p><h1>{viewHeadings[activeView].title}</h1></div>
-          <div className="actor"><span>{actor?.displayName?.slice(0, 1) ?? "管"}</span><div><strong>{actor?.displayName ?? "正在登录"}</strong><small>{actor?.role ?? "—"}</small></div></div>
+          <div className="actor"><span>{actor?.displayName?.slice(0, 1) ?? "管"}</span><div><strong>{actor?.displayName ?? "管理员"}</strong><small>管理员</small></div><a className="actor-logout" href="/account/security">账号安全</a><button className="actor-logout" onClick={logout}>退出</button></div>
         </header>
 
         <div className={error ? "notice error" : "notice"} role="status">
@@ -737,6 +776,7 @@ export default function AdminDashboard() {
           </section>
         ) : (
           <section className="registration-panel panel">
+            <AccountSetup token={token} onCreated={async () => { const result = await getElderAccounts(token); setElderAccounts(result.items); }} />
             <div className="panel-heading"><div><p>待审核</p><h2>家属注册申请</h2></div><span>{applications.length} 项</span></div>
             <p className="registration-intro">仅核验申请人身份与关系信息。密码以安全哈希保存，审核人员无法查看。</p>
             {loading && <div className="empty">正在读取申请队列…</div>}

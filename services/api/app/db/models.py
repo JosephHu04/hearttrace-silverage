@@ -207,8 +207,8 @@ class DailyInsight(Base):
     label: Mapped[str] = mapped_column(String(100))
     headline: Mapped[str] = mapped_column(String(300))
     summary: Mapped[str] = mapped_column(Text)
-    score: Mapped[int] = mapped_column(Integer)
-    baseline_delta: Mapped[int] = mapped_column(Integer)
+    score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    baseline_delta: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     topics: Mapped[list[dict[str, str]]] = mapped_column(JSON, default=list)
     has_active_emergency: Mapped[bool] = mapped_column(Boolean, default=False)
     safety_message: Mapped[str] = mapped_column(String(300))
@@ -276,11 +276,13 @@ class FamilyActionRecord(Base):
     __table_args__ = (
         UniqueConstraint("request_id", name="uq_family_action_records_request_id"),
         Index("ix_family_action_event_time", "risk_event_id", "created_at"),
+        Index("ix_family_action_owner_elder_time", "family_id", "elder_id", "created_at"),
     )
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=uuid_string)
     request_id: Mapped[str] = mapped_column(String(100))
-    risk_event_id: Mapped[str] = mapped_column(ForeignKey("risk_events.id"))
+    risk_event_id: Mapped[Optional[str]] = mapped_column(ForeignKey("risk_events.id"), nullable=True)
+    elder_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
     family_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
     action: Mapped[str] = mapped_column(String(32))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
@@ -355,6 +357,6 @@ class AuditLog(Base):
     actor_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
     action: Mapped[str] = mapped_column(String(64), index=True)
     target_type: Mapped[str] = mapped_column(String(32))
-    target_id: Mapped[str] = mapped_column(String(64))
+    target_id: Mapped[str] = mapped_column(String(160))
     metadata_json: Mapped[dict[str, object]] = mapped_column("metadata", JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

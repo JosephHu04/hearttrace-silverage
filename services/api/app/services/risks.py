@@ -161,9 +161,13 @@ def apply_action(
         target_id=event.id,
         metadata={"fromStatus": previous_status, "toStatus": next_status, "eventVersion": next_version},
     )
-    if action_name == "request_action":
-        published = publish_confirmed_analysis_summary(db, risk_event=event, actor_id=actor.id)
-        if published is None:
+    if action_name == "request_action" or (action_name == "resolve" and event.level == "green"):
+        try:
+            published = publish_confirmed_analysis_summary(db, risk_event=event, actor_id=actor.id)
+        except PermissionError as exc:
+            db.rollback()
+            raise RiskConflictError(str(exc)) from exc
+        if published is None and action_name == "request_action":
             name = db.scalar(select(User.display_name).where(User.id == event.elder_id)) or "老人"
             notify_families(
                 db,

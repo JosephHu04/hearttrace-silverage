@@ -184,6 +184,11 @@ def _ensure_notification_system_actor(db: Session) -> User:
 
 def _claim_notification_event(db: Session) -> OutboxEvent | None:
     now = utc_now()
+    db.execute(update(OutboxEvent).where(
+        OutboxEvent.event_type == NOTIFICATION_EVENT_TYPE, OutboxEvent.status == "processing",
+        OutboxEvent.attempts >= MAX_DELIVERY_ATTEMPTS, OutboxEvent.locked_at < now - timedelta(minutes=5),
+    ).values(status="failed", locked_at=None, last_error="worker_lease_expired", updated_at=now))
+    db.commit()
     event = db.scalar(
         select(OutboxEvent)
         .where(
@@ -271,7 +276,7 @@ def process_next_notification_event(
                 status="missing",
                 error=type(error).__name__,
             )
-        message = f"{type(error).__name__}: {str(error)}"[:500]
+        message = f"{type(error).__name__}: notification_delivery_failed"
         event.status = "failed" if event.attempts >= MAX_DELIVERY_ATTEMPTS else "pending"
         event.available_at = utc_now() + timedelta(seconds=min(60 * (2**event.attempts), 900))
         event.locked_at = None

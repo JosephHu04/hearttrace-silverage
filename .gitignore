@@ -1,6 +1,7 @@
 # Dependencies and build outputs
 node_modules/
 .next/
+.next-build/
 dist/
 build/
 coverage/
