@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Optional
 from uuid import uuid4
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -213,6 +213,28 @@ class DailyInsight(Base):
     has_active_emergency: Mapped[bool] = mapped_column(Boolean, default=False)
     safety_message: Mapped[str] = mapped_column(String(300))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class DailyCheckIn(Base):
+    __tablename__ = "daily_check_ins"
+    __table_args__ = (
+        UniqueConstraint("elder_id", "checkin_date", name="uq_daily_check_ins_elder_date"),
+        Index("ix_daily_check_ins_date", "checkin_date"),
+        CheckConstraint("mood BETWEEN 1 AND 5", name="ck_daily_check_ins_mood"),
+        CheckConstraint("sleep BETWEEN 1 AND 5", name="ck_daily_check_ins_sleep"),
+        CheckConstraint("social_willingness BETWEEN 1 AND 5", name="ck_daily_check_ins_social"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=uuid_string)
+    elder_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    checkin_date: Mapped[date] = mapped_column(Date)
+    mood: Mapped[int] = mapped_column(Integer)
+    sleep: Mapped[int] = mapped_column(Integer)
+    social_willingness: Mapped[int] = mapped_column(Integer)
+    share_with_family: Mapped[bool] = mapped_column(Boolean, default=False)
+    share_with_care_team: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
 
 class RiskEvent(Base):
