@@ -110,6 +110,15 @@ cd services/api
 pytest tests/test_notifications.py
 ```
 
+## 每日自述打卡联调（后端契约，前端待接入）
+
+1. 老人端以本人账号调用 `POST /api/elder/check-ins`，提交 `mood`、`sleep`、`socialWillingness`（各 1–5）及两个默认关闭的分享选择；`GET /api/elder/check-ins` 应只返回本人记录。同一天重复提交应返回同一个 `id`，不生成第二条。
+2. 两个分享选择都为 `false` 时，家属端 `/api/family/elders/elder-demo-001/check-ins` 和管理端 `/api/admin/check-ins` 均不显示该记录。
+3. 本人明确设置 `shareWithFamily=true` 后，林女士凭 `daily_summary` 授权可看三个自述值；无授权家属和另一位老人的家属不得读取。设置 `shareWithCareTeam=true` 后，工作人员可在管理端队列查看；任一项不高于 2 时 `attentionOnly=true` 可筛出，但不自动生成风险事件。
+4. 本人调用 `POST /api/elder/check-ins/{id}/sharing` 关闭两项分享后，即使已过当天，家属与工作人员刷新也不能再看到该记录。审计台可看到创建、修改分享与授权读取的动作，但审计元数据不含自述分值。
+
+自动验证：`cd services/api && pytest tests/test_daily_check_ins.py`。三端页面尚未接入这些接口；不要把这个后端测试说成三端可用性验收。
+
 完整的真实 HTTP 烟雾联调可在一个一次性数据库上执行：
 
 ```bash

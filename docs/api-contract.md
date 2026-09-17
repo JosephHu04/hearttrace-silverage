@@ -5,16 +5,20 @@
 | 接口 | 调用方 | 用途 |
 | --- | --- | --- |
 | `POST /api/conversations/sessions` | 老人端 | 创建会话并校验保存与分析授权 |
+| `GET/POST /api/elder/check-ins` | 老人端 | 查看或保存本人每日自述与独立分享选择 |
+| `POST /api/elder/check-ins/{id}/sharing` | 老人端 | 修改本人历史打卡的分享选择 |
 | `WS /api/realtime/conversation` | 老人端 | 流式文本与语音陪伴 |
 | `POST /api/emergency/events` | 老人端、绑定设备 | 创建一键呼救或设备求助事件；使用 requestId 幂等防重 |
 | `POST /api/video-link/requests` | 老人端 | 交接至已绑定的微信联系人或电话路径 |
 | `WS /api/devices/{id}/telemetry` | 硬件端 | 设备心跳、按键状态和跌倒候选事件 |
 | `GET /api/family/elders/{id}/today` | 家属端 | 今日摘要、趋势、待办和紧急事件状态 |
-| `GET /api/family/elders/{id}/trend?days=7|30` | 家属端 | 只返回每日结构化分数、等级和日期的个人趋势 |
+| `GET /api/family/elders/{id}/trend?days=7|30` | 家属端 | 只返回已发布摘要的等级、标签和日期；未施测时数值为空 |
+| `GET /api/family/elders/{id}/check-ins?days=7` | 家属端 | 仅在有效授权及本人分享后读取自述趋势 |
 | `GET/POST /api/family/elders/{id}/care-plan` | 家属端 | 查看或新增仅当前家属可见的关怀计划 |
 | `POST /api/family/elders/{id}/care-plan/{itemId}/complete` | 家属端 | 完成一项私人关怀计划 |
 | `POST /api/family/risk-events/{id}/actions` | 家属端 | 记录已查看、已联系、已探望或已转介 |
 | `GET /api/admin/fall-events` | 管理端 | 审核跌倒候选事件与设备在线状态 |
+| `GET /api/admin/check-ins?attentionOnly=true` | 管理端 | 查看本人同意分享给关怀团队的自述与非诊断性关注标记 |
 | `POST /api/auth/registration-applications` | 家属端 | 提交家属关系核验申请；密码仅以哈希保存 |
 | `GET /api/auth/registration-applications/{id}` | 家属端 | 查询本人申请的审批状态（正式版应加入短信/邮件校验） |
 | `GET /api/admin/registration-applications?status=pending` | 管理端 | 查看待审批家属申请 |
@@ -84,6 +88,28 @@
 通知业务记录与 `notification.delivery.requested` Outbox 在同一事务中写入。投递事件只包含 `notificationId`、`recipientId` 和 `channels`，不含通知正文、联系方式、对话原文或模型提示词。事件使用确定性幂等键，同一业务动作重试不会创建重复通知。
 
 其他接口请求、响应字段、授权 scope 和错误码将在后续继续冻结为 OpenAPI 文档。
+
+## 已实现：每日自述打卡（后端）
+
+`POST /api/elder/check-ins` 仅允许登录的老人本人调用。请求体采用 camelCase；三个数值都是本人主观感受的 1–5 级，5 表示较好，1 表示较差，**不是量表、诊断、风险等级或“心理健康分”**：
+
+```json
+{
+  "mood": 3,
+  "sleep": 4,
+  "socialWillingness": 2,
+  "shareWithFamily": false,
+  "shareWithCareTeam": false
+}
+```
+
+两个分享开关互相独立且默认 `false`；前端应分别解释用途，不可预勾选。服务端以 `Asia/Shanghai` 自然日为准，每位老人每天只保留一条；当日再次提交会更新本人记录，返回同一个 `id`。回复包含 `id`、`checkinDate`、三个自述数值、两个分享开关、`createdAt` 和 `updatedAt`。`GET /api/elder/check-ins?days=7` 仅返回本人最近 1–30 天记录（默认 7 天，按日期倒序）。`POST /api/elder/check-ins/{id}/sharing` 提交 `{"shareWithFamily":false,"shareWithCareTeam":false}` 可随时撤回本人任意历史记录的分享，不改动自述值；非本人记录返回 404。撤回后家属／工作人员的后续读取立即不可见；审计只记录分享选择和日期，不记录具体自述值。
+
+`GET /api/family/elders/{elderId}/check-ins?days=7` 同时要求有效 `daily_summary` 家属授权和该条记录的 `shareWithFamily=true`。返回 `items`，每项仅含 `checkinDate`、`mood`、`sleep`、`socialWillingness`，按日期升序；未获授权返回 403，已获授权但未分享返回空列表。此接口与现有分析摘要 `/trend` 分开，不会把自述值换算成旧的“健康分”。
+
+`GET /api/admin/check-ins?days=7&attentionOnly=false&page=1&perPage=20` 仅允许 `admin`／`professional`，只读取 `shareWithCareTeam=true` 的记录。`attentionNeeded` 仅表示任一自述项不高于 2，供人工决定是否进一步关怀；它不创建风险事件、不自动通知家属，也不代表疾病或危机判断。`attentionOnly=true` 可筛出此类记录。家属和工作人员的查询均写入审计。三个列表的 `days` 均限 1–30，工作人员 `perPage` 限 1–100。
+
+前端联调需确认：三个 1–5 级的中文选项文案、两个分享开关的知情说明，以及工作人员是否需要在管理台展示原始自述值。未确认前，不应将此接口接入自动风险定级。
 
 ## 家属注册状态机
 

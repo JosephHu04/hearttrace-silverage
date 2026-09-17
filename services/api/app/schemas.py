@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from enum import Enum
 from typing import Optional
 
@@ -227,6 +227,57 @@ class NotificationListOut(ApiModel):
 class NotificationReadResult(ApiModel):
     notification: NotificationOut
     duplicate: bool = False
+
+
+class DailyCheckInCreate(ApiModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mood: int = Field(ge=1, le=5)
+    sleep: int = Field(ge=1, le=5)
+    social_willingness: int = Field(ge=1, le=5)
+    share_with_family: bool = False
+    share_with_care_team: bool = False
+
+
+class DailyCheckInSharingUpdate(ApiModel):
+    model_config = ConfigDict(extra="forbid")
+
+    share_with_family: bool
+    share_with_care_team: bool
+
+
+class DailyCheckInOut(DailyCheckInCreate):
+    id: str
+    checkin_date: date
+    created_at: datetime
+    updated_at: datetime
+
+
+class SharedCheckInOut(ApiModel):
+    checkin_date: date
+    mood: int
+    sleep: int
+    social_willingness: int
+
+
+class StaffCheckInOut(SharedCheckInOut):
+    id: str
+    elder_id: str
+    elder_name: str
+    attention_needed: bool
+
+
+class DailyCheckInListOut(ApiModel):
+    items: list[DailyCheckInOut]
+
+
+class SharedCheckInListOut(ApiModel):
+    items: list[SharedCheckInOut]
+
+
+class StaffCheckInListOut(ApiModel):
+    items: list[StaffCheckInOut]
+    total: int
 
 
 class ConversationSessionCreate(ApiModel):
