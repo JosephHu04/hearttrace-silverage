@@ -2,12 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ApiError, changeFamilyGrant, getAuditLogs, getElderAccounts, getEmergencyQueue, getFamilyGrants, getNotifications, getRegistrationApplications, getRiskDetail, getRiskQueue, markNotificationRead, performEmergencyAction, performRiskAction, reviewRegistrationApplication } from "@/lib/admin-api";
+import { ApiError, changeFamilyGrant, getAdminCheckIns, getAuditLogs, getElderAccounts, getEmergencyQueue, getFamilyGrants, getNotifications, getRegistrationApplications, getRiskDetail, getRiskQueue, markNotificationRead, performEmergencyAction, performRiskAction, reviewRegistrationApplication } from "@/lib/admin-api";
 import { clearAdminSession, readAdminSession } from "@/lib/admin-session";
 import { AccountSetup } from "./account-setup";
-import type { Actor, AuditFilters, AuditListResponse, AuthorizationScope, ElderAccount, EmergencyAction, EmergencyEvent, EmergencyStatus, FamilyGrant, GrantAction, NotificationCategory, NotificationItem, NotificationListResponse, RegistrationApplication, RiskAction, RiskDetail, RiskListItem, RiskStatus } from "@/lib/types";
+import type { Actor, AdminCheckIn, AuditFilters, AuditListResponse, AuthorizationScope, ElderAccount, EmergencyAction, EmergencyEvent, EmergencyStatus, FamilyGrant, GrantAction, NotificationCategory, NotificationItem, NotificationListResponse, RegistrationApplication, RiskAction, RiskDetail, RiskListItem, RiskStatus } from "@/lib/types";
 
-type AdminView = "risk" | "emergency" | "relationships" | "notifications" | "audit" | "registrations";
+type AdminView = "risk" | "emergency" | "checkins" | "relationships" | "notifications" | "audit" | "registrations";
 
 const emptyAuditFilters: AuditFilters = { actorId: "", action: "", targetType: "", targetId: "", page: 1, perPage: 25 };
 
@@ -114,6 +114,7 @@ const actionableNotificationTargets = new Set(["risk_event", "emergency_event", 
 const viewHeadings: Record<AdminView, { eyebrow: string; title: string }> = {
   risk: { eyebrow: "风险复核 / 今日工作", title: "先处理需要人工判断的事项" },
   emergency: { eyebrow: "安全事件 / 紧急求助", title: "确认每一条求助都得到人工响应" },
+  checkins: { eyebrow: "每日自述 / 人工关注", title: "只查看老人主动分享且需要关注的感受" },
   relationships: { eyebrow: "关系管理 / 授权范围", title: "让每一次访问都有明确授权依据" },
   notifications: { eyebrow: "通知中心 / 个人待办", title: "从业务提醒直接进入处置闭环" },
   audit: { eyebrow: "审计查询 / 操作留痕", title: "核对每一次敏感读取与人工操作" },
@@ -150,6 +151,11 @@ export default function AdminDashboard() {
   const [applications, setApplications] = useState<RegistrationApplication[]>([]);
   const [reviewingId, setReviewingId] = useState<string | null>(null);
   const [emergencies, setEmergencies] = useState<EmergencyEvent[]>([]);
+  const [checkIns, setCheckIns] = useState<AdminCheckIn[]>([]);
+  const [checkInsTotal, setCheckInsTotal] = useState(0);
+  const [checkInsDays, setCheckInsDays] = useState(7);
+  const [checkInsAttentionOnly, setCheckInsAttentionOnly] = useState(false);
+  const [checkInsLoading, setCheckInsLoading] = useState(false);
   const [selectedEmergency, setSelectedEmergency] = useState<EmergencyEvent | null>(null);
   const [emergencyNote, setEmergencyNote] = useState("");
   const [emergencyBusy, setEmergencyBusy] = useState<EmergencyAction | null>(null);
@@ -308,6 +314,22 @@ export default function AdminDashboard() {
     }
   };
 
+  const loadCheckIns = async (days = checkInsDays, attentionOnly = checkInsAttentionOnly) => {
+    if (!token) return;
+    setCheckInsLoading(true);
+    setError("");
+    try {
+      const result = await getAdminCheckIns(token, days, attentionOnly);
+      setCheckIns(result.items);
+      setCheckInsTotal(result.total);
+      setNotice(`已读取 ${result.total} 条老人主动分享的每日自述`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "读取每日自述失败");
+    } finally {
+      setCheckInsLoading(false);
+    }
+  };
+
   const recordNotificationRead = async (item: NotificationItem) => {
     if (!token || item.isRead) return;
     setNotificationBusy(item.id);
@@ -378,6 +400,7 @@ export default function AdminDashboard() {
     }
     if (view === "relationships") void loadGrants();
     if (view === "notifications") void loadNotifications(1, notificationUnreadOnly);
+    if (view === "checkins") void loadCheckIns();
   };
 
   const auditPageCount = Math.max(1, Math.ceil(audits.total / audits.perPage));
@@ -484,10 +507,11 @@ export default function AdminDashboard() {
           <button className={`nav-item ${activeView === "risk" ? "active" : ""}`} onClick={() => openView("risk")}><span>01</span>风险复核</button>
           <button className={`nav-item ${activeView === "registrations" ? "active" : ""}`} onClick={() => openView("registrations")}><span>02</span>注册审核{applications.length > 0 && <em>{applications.length} 待办</em>}</button>
           <button className={`nav-item ${activeView === "emergency" ? "active" : ""}`} onClick={() => openView("emergency")}><span>03</span>安全事件{emergencies.filter((item) => ["open", "acknowledged"].includes(item.status)).length > 0 && <em>{emergencies.filter((item) => ["open", "acknowledged"].includes(item.status)).length} 待办</em>}</button>
-          <button className={`nav-item ${activeView === "relationships" ? "active" : ""}`} onClick={() => openView("relationships")}><span>04</span>关系与授权<em>{grants.filter((grant) => grant.isActive).length} 生效</em></button>
-          <button className={`nav-item ${activeView === "notifications" ? "active" : ""}`} onClick={() => openView("notifications")}><span>05</span>通知中心{notifications.unreadCount > 0 && <em>{notifications.unreadCount} 未读</em>}</button>
-          <button className="nav-item" disabled><span>06</span>设备管理<em>待接入</em></button>
-          <button className={`nav-item ${activeView === "audit" ? "active" : ""}`} onClick={() => openView("audit")}><span>07</span>审计查询</button>
+          <button className={`nav-item ${activeView === "checkins" ? "active" : ""}`} onClick={() => openView("checkins")}><span>04</span>每日自述{checkIns.filter((item) => item.attentionNeeded).length > 0 && <em>{checkIns.filter((item) => item.attentionNeeded).length} 关注</em>}</button>
+          <button className={`nav-item ${activeView === "relationships" ? "active" : ""}`} onClick={() => openView("relationships")}><span>05</span>关系与授权<em>{grants.filter((grant) => grant.isActive).length} 生效</em></button>
+          <button className={`nav-item ${activeView === "notifications" ? "active" : ""}`} onClick={() => openView("notifications")}><span>06</span>通知中心{notifications.unreadCount > 0 && <em>{notifications.unreadCount} 未读</em>}</button>
+          <button className="nav-item" disabled><span>07</span>设备管理<em>待接入</em></button>
+          <button className={`nav-item ${activeView === "audit" ? "active" : ""}`} onClick={() => openView("audit")}><span>08</span>审计查询</button>
         </nav>
         <div className="sidebar-note">
           <span className="connection-dot" />
@@ -626,6 +650,12 @@ export default function AdminDashboard() {
                 </div>
               </>}
             </div>
+          </section>
+        ) : activeView === "checkins" ? (
+          <section className="checkin-console panel">
+            <div className="checkin-toolbar"><div><p>老人主动分享的结构化自述</p><h2>每日自述关注台</h2><small>只读取老人明确分享给关怀团队的数据；低分仅提示人工关注，不代表抑郁、自残或任何疾病诊断。</small></div><div className="checkin-controls"><label>时间范围<select value={checkInsDays} onChange={(event) => { const days = Number(event.target.value); setCheckInsDays(days); void loadCheckIns(days, checkInsAttentionOnly); }}><option value={7}>近 7 天</option><option value={14}>近 14 天</option><option value={30}>近 30 天</option></select></label><label className="checkin-toggle"><input type="checkbox" checked={checkInsAttentionOnly} onChange={(event) => { const only = event.target.checked; setCheckInsAttentionOnly(only); void loadCheckIns(checkInsDays, only); }} /> 只看需要关注</label><button className="secondary" disabled={checkInsLoading} onClick={() => void loadCheckIns()}>{checkInsLoading ? "刷新中…" : "刷新"}</button></div></div>
+            <div className="checkin-summary"><strong>{checkInsTotal}</strong><span>条已获授权的自述</span><b>{checkIns.filter((item) => item.attentionNeeded).length}</b><span>条建议人工关注</span></div>
+            <div className="checkin-table"><div className="checkin-row checkin-header"><span>日期</span><span>老人</span><span>心情</span><span>睡眠</span><span>交流意愿</span><span>提示</span></div>{checkInsLoading && <div className="empty">正在读取每日自述…</div>}{!checkInsLoading && checkIns.length === 0 && <div className="empty">当前筛选范围内没有已分享的每日自述</div>}{!checkInsLoading && checkIns.map((item) => <article className={`checkin-row ${item.attentionNeeded ? "attention" : ""}`} key={item.id}><time>{item.checkinDate}</time><strong>{item.elderName}<small>{item.elderId}</small></strong><span>{item.mood}/5</span><span>{item.sleep}/5</span><span>{item.socialWillingness}/5</span><span>{item.attentionNeeded ? <em>建议人工问候</em> : <i>记录正常</i>}</span></article>)}</div>
           </section>
         ) : activeView === "relationships" ? (
           <section className="relationship-panel panel">

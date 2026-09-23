@@ -56,6 +56,15 @@ export type FamilyTrend = {
   items: FamilyTrendPoint[];
 };
 
+export type SharedCheckIn = {
+  checkinDate: string;
+  mood: number;
+  sleep: number;
+  socialWillingness: number;
+};
+
+export type SharedCheckInList = { items: SharedCheckIn[] };
+
 export type FamilyCarePlanItem = {
   id: string;
   title: string;

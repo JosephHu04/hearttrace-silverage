@@ -1,4 +1,4 @@
-import type { AuditFilters, AuditListResponse, AuthorizationScope, ElderAccountList, EmergencyAction, EmergencyActionResponse, EmergencyListResponse, FamilyGrant, FamilyGrantList, GrantAction, LoginResult, NotificationListResponse, NotificationReadResponse, RegistrationApplication, RegistrationApplicationList, RiskAction, RiskActionResponse, RiskDetail, RiskListResponse } from "./types";
+import type { AdminCheckInList, AuditFilters, AuditListResponse, AuthorizationScope, ElderAccountList, EmergencyAction, EmergencyActionResponse, EmergencyListResponse, FamilyGrant, FamilyGrantList, GrantAction, LoginResult, NotificationListResponse, NotificationReadResponse, RegistrationApplication, RegistrationApplicationList, RiskAction, RiskActionResponse, RiskDetail, RiskListResponse } from "./types";
 
 const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
@@ -37,6 +37,13 @@ export function loginWithPassword(loginIdentifier: string, password: string) {
 
 export function getRiskQueue(token: string) {
   return request<RiskListResponse>("/api/admin/risk-events?perPage=50", {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
+export function getAdminCheckIns(token: string, days = 7, attentionOnly = false) {
+  const query = new URLSearchParams({ days: String(days), attentionOnly: String(attentionOnly), page: "1", perPage: "50" });
+  return request<AdminCheckInList>(`/api/admin/check-ins?${query.toString()}`, {
     headers: { Authorization: `Bearer ${token}` }
   });
 }

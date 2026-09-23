@@ -10,7 +10,7 @@ const API_ORIGIN = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:80
   .replace(/\/$/, "");
 const API_BASE = `${API_ORIGIN}/api`;
 
-type ActivePanel = "home" | "chat" | "time" | "weather" | "news";
+type ActivePanel = "home" | "chat" | "time" | "weather" | "news" | "checkin";
 type ConsentMode = "private" | "care";
 type EmergencyState = "idle" | "confirming" | "submitting" | "sent" | "error";
 type ChatMessage = { id: string; role: "user" | "assistant"; content: string; at: Date | null };
@@ -25,6 +25,17 @@ type Weather = {
   stale: boolean;
 };
 type NewsItem = { title: string; url: string; source: string };
+type DailyCheckIn = {
+  id: string;
+  checkinDate: string;
+  mood: number;
+  sleep: number;
+  socialWillingness: number;
+  shareWithFamily: boolean;
+  shareWithCareTeam: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
 type ServerEvent = {
   type: string;
   text?: string;
@@ -66,6 +77,15 @@ export default function ElderCompanionPage() {
   const [news, setNews] = useState<NewsItem[]>([]);
   const [emergencyState, setEmergencyState] = useState<EmergencyState>("idle");
   const [emergencyMessage, setEmergencyMessage] = useState("");
+  const [checkIn, setCheckIn] = useState<DailyCheckIn | null>(null);
+  const [checkInHistory, setCheckInHistory] = useState<DailyCheckIn[]>([]);
+  const [checkInMood, setCheckInMood] = useState(3);
+  const [checkInSleep, setCheckInSleep] = useState(3);
+  const [checkInSocial, setCheckInSocial] = useState(3);
+  const [checkInFamily, setCheckInFamily] = useState(false);
+  const [checkInCareTeam, setCheckInCareTeam] = useState(false);
+  const [checkInBusy, setCheckInBusy] = useState(false);
+  const [checkInNotice, setCheckInNotice] = useState("");
   const socketRef = useRef<WebSocket | null>(null);
   const tokenRef = useRef("");
   const assistantIdRef = useRef<string | null>(null);
@@ -117,6 +137,76 @@ export default function ElderCompanionPage() {
       setNews([]);
     }
   }, [authorizedFetch]);
+
+  const loadCheckIns = useCallback(async () => {
+    try {
+      const data = await authorizedFetch("/elder/check-ins?days=7") as { items?: DailyCheckIn[] };
+      const items = data.items ?? [];
+      setCheckInHistory(items);
+      const current = items[0] ?? null;
+      setCheckIn(current);
+      if (current) {
+        setCheckInMood(current.mood);
+        setCheckInSleep(current.sleep);
+        setCheckInSocial(current.socialWillingness);
+        setCheckInFamily(current.shareWithFamily);
+        setCheckInCareTeam(current.shareWithCareTeam);
+      }
+    } catch (error) {
+      setCheckInNotice(error instanceof Error ? error.message : "暂时无法读取今日打卡");
+    }
+  }, [authorizedFetch]);
+
+  useEffect(() => {
+    if (accessToken && activePanel === "checkin") void loadCheckIns();
+  }, [accessToken, activePanel, loadCheckIns]);
+
+  async function saveCheckIn() {
+    if (checkInBusy) return;
+    setCheckInBusy(true);
+    setCheckInNotice("");
+    try {
+      const response = await fetch(`${API_BASE}/elder/check-ins`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${tokenRef.current}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ mood: checkInMood, sleep: checkInSleep, socialWillingness: checkInSocial, shareWithFamily: checkInFamily, shareWithCareTeam: checkInCareTeam })
+      });
+      const data = await response.json() as DailyCheckIn & { detail?: string };
+      if (!response.ok) throw new Error(data.detail ?? "保存打卡失败");
+      setCheckIn(data);
+      setCheckInHistory((items) => [data, ...items.filter((item) => item.id !== data.id)]);
+      setCheckInNotice("今天的自述已保存，分享范围也已按你的选择更新。");
+    } catch (error) {
+      setCheckInNotice(error instanceof Error ? error.message : "保存打卡失败，请稍后重试");
+    } finally {
+      setCheckInBusy(false);
+    }
+  }
+
+  async function updateCheckInSharing(nextFamily: boolean, nextCareTeam: boolean) {
+    if (!checkIn || checkInBusy) return;
+    setCheckInBusy(true);
+    setCheckInFamily(nextFamily);
+    setCheckInCareTeam(nextCareTeam);
+    try {
+      const response = await fetch(`${API_BASE}/elder/check-ins/${checkIn.id}/sharing`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${tokenRef.current}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ shareWithFamily: nextFamily, shareWithCareTeam: nextCareTeam })
+      });
+      const data = await response.json() as DailyCheckIn & { detail?: string };
+      if (!response.ok) throw new Error(data.detail ?? "分享设置更新失败");
+      setCheckIn(data);
+      setCheckInHistory((items) => items.map((item) => item.id === data.id ? data : item));
+      setCheckInNotice("分享设置已更新。");
+    } catch (error) {
+      setCheckInFamily(checkIn.shareWithFamily);
+      setCheckInCareTeam(checkIn.shareWithCareTeam);
+      setCheckInNotice(error instanceof Error ? error.message : "分享设置更新失败");
+    } finally {
+      setCheckInBusy(false);
+    }
+  }
 
   useEffect(() => {
     setNow(new Date());
@@ -355,6 +445,11 @@ export default function ElderCompanionPage() {
             <span>{news[0]?.title ?? "点一下听听今天的消息"}</span>
           </button>
 
+          <button className="feature-tile feature-checkin" type="button" onClick={() => setActivePanel("checkin")}>
+            <strong>每日自述</strong>
+            <span>{checkIn ? "今天已记录 · 点一下可修改" : "用三个小问题告诉我今天的状态"}</span>
+          </button>
+
           <button className="feature-tile feature-emergency" type="button" disabled={emergencyState === "submitting" || emergencyState === "sent"} onClick={() => setEmergencyState("confirming")}>
             <strong>{emergencyState === "sent" ? "求助已发出" : "紧急呼救"}</strong>
             <span>{emergencyState === "sent" ? "家属和工作人员正在收到提醒" : "身体不舒服、跌倒或感到危险时点这里"}</span>
@@ -381,7 +476,7 @@ export default function ElderCompanionPage() {
         <section className={`panel-view panel-${activePanel}`}>
           <header className="panel-header">
             <button className="back-button" type="button" onClick={() => setActivePanel("home")}>返回首页</button>
-            <h1>{activePanel === "chat" ? "陪我聊聊" : activePanel === "time" ? "现在时间" : activePanel === "weather" ? "今日天气" : "最新资讯"}</h1>
+            <h1>{activePanel === "chat" ? "陪我聊聊" : activePanel === "time" ? "现在时间" : activePanel === "weather" ? "今日天气" : activePanel === "checkin" ? "每日自述" : "最新资讯"}</h1>
           </header>
 
           {activePanel === "chat" && (
@@ -467,8 +562,27 @@ export default function ElderCompanionPage() {
               <button className="refresh-button" type="button" onClick={() => void loadNews()}>重新查看资讯</button>
             </div>
           )}
+
+          {activePanel === "checkin" && (
+            <div className="checkin-view">
+              <div className="checkin-intro"><strong>花一分钟，记录今天的自己</strong><p>这是你的主观感受，不是考试，也不是疾病诊断。可以随时修改。</p></div>
+              <div className="checkin-form">
+                <RatingQuestion label="今天的心情怎么样？" value={checkInMood} onChange={setCheckInMood} labels={["很低落", "不太好", "一般", "还不错", "很好"]} />
+                <RatingQuestion label="昨晚睡得怎么样？" value={checkInSleep} onChange={setCheckInSleep} labels={["很不好", "不太好", "一般", "还不错", "很好"]} />
+                <RatingQuestion label="今天愿意和人聊聊吗？" value={checkInSocial} onChange={setCheckInSocial} labels={["不愿意", "比较少", "看情况", "愿意", "很愿意"]} />
+              </div>
+              <div className="checkin-sharing"><strong>你想把这次自述分享给谁？</strong><label><input type="checkbox" checked={checkInFamily} disabled={!checkIn || checkInBusy} onChange={(event) => { void updateCheckInSharing(event.target.checked, checkInCareTeam); }} /> 家属（只看到这三个分数和日期）</label><label><input type="checkbox" checked={checkInCareTeam} disabled={!checkIn || checkInBusy} onChange={(event) => { void updateCheckInSharing(checkInFamily, event.target.checked); }} /> 关怀团队（用于人工关注，不代表诊断）</label><small>不分享也可以保存；聊天全文不会因为打卡而开放。</small></div>
+              <button className="checkin-submit" type="button" disabled={checkInBusy} onClick={() => { void saveCheckIn(); }}>{checkInBusy ? "保存中…" : checkIn ? "更新今天的自述" : "保存今天的自述"}</button>
+              {checkInNotice && <p className="checkin-notice" role="status">{checkInNotice}</p>}
+              {checkInHistory.length > 0 && <div className="checkin-history"><h2>最近 7 天</h2>{checkInHistory.map((item) => <div key={item.id}><time>{item.checkinDate}</time><span>心情 {item.mood}/5 · 睡眠 {item.sleep}/5 · 交流 {item.socialWillingness}/5</span><small>{item.shareWithFamily || item.shareWithCareTeam ? "已按选择分享" : "仅自己可见"}</small></div>)}</div>}
+            </div>
+          )}
         </section>
       )}
     </main>
   );
+}
+
+function RatingQuestion({ label, value, onChange, labels }: { label: string; value: number; onChange: (value: number) => void; labels: string[] }) {
+  return <fieldset className="rating-question"><legend>{label}</legend><div>{labels.map((text, index) => { const score = index + 1; return <label key={text} className={value === score ? "selected" : ""}><input type="radio" name={label} checked={value === score} onChange={() => onChange(score)} /><span>{score}</span><small>{text}</small></label>; })}</div></fieldset>;
 }
