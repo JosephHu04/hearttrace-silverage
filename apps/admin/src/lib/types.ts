@@ -82,6 +82,19 @@ export type RiskListResponse = {
   total: number;
 };
 
+export type AdminCheckIn = {
+  id: string;
+  elderId: string;
+  elderName: string;
+  checkinDate: string;
+  mood: number;
+  sleep: number;
+  socialWillingness: number;
+  attentionNeeded: boolean;
+};
+
+export type AdminCheckInList = { items: AdminCheckIn[]; total: number };
+
 export type RiskActionResponse = {
   event: RiskDetail;
   action: RiskActionRecord;

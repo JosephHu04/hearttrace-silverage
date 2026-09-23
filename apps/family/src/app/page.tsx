@@ -2,15 +2,16 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ApiError, completeFamilyCarePlanItem, createFamilyCarePlanItem, getFamilyCarePlan, getFamilyElders, getFamilyToday, getFamilyTrend, getNotifications, markNotificationRead, recordFamilyAction } from "@/lib/family-api";
-import type { FamilyAction, FamilyCarePlanItem, FamilyElder, FamilyToday, FamilyTrend, NotificationCategory, NotificationItem, NotificationList } from "@/lib/types";
+import { ApiError, completeFamilyCarePlanItem, createFamilyCarePlanItem, getFamilyCarePlan, getFamilyCheckIns, getFamilyElders, getFamilyToday, getFamilyTrend, getNotifications, markNotificationRead, recordFamilyAction } from "@/lib/family-api";
+import type { FamilyAction, FamilyCarePlanItem, FamilyElder, FamilyToday, FamilyTrend, NotificationCategory, NotificationItem, NotificationList, SharedCheckIn } from "@/lib/types";
 
-type PageKey = "today" | "report" | "trend" | "risk" | "notifications" | "plan" | "privacy";
+type PageKey = "today" | "report" | "trend" | "checkin" | "risk" | "notifications" | "plan" | "privacy";
 
 const navigation: { key: PageKey; label: string; icon: string }[] = [
   { key: "today", label: "今日关怀", icon: "☀" },
   { key: "report", label: "每日关怀报告", icon: "✦" },
   { key: "trend", label: "心境趋势", icon: "⌁" },
+  { key: "checkin", label: "每日自述", icon: "◌" },
   { key: "risk", label: "风险提醒", icon: "◉" },
   { key: "notifications", label: "消息通知", icon: "●" },
   { key: "plan", label: "陪伴计划", icon: "□" },
@@ -21,6 +22,7 @@ const pageTitles: Record<PageKey, string> = {
   today: "今天，适合轻轻问候一下",
   report: "每日关怀报告",
   trend: "心境趋势",
+  checkin: "老人每日自述",
   risk: "风险提醒与行动",
   notifications: "消息通知",
   plan: "陪伴计划",
@@ -50,6 +52,9 @@ export default function FamilyDashboard() {
   const [notice, setNotice] = useState("正在读取已授权的摘要、趋势和安全事件状态。");
   const [today, setToday] = useState<FamilyToday | null>(null);
   const [trend, setTrend] = useState<FamilyTrend | null>(null);
+  const [checkIns, setCheckIns] = useState<SharedCheckIn[]>([]);
+  const [checkInsLoading, setCheckInsLoading] = useState(false);
+  const [checkInsError, setCheckInsError] = useState("");
   const [trendDays, setTrendDays] = useState<7 | 30>(7);
   const [carePlan, setCarePlan] = useState<FamilyCarePlanItem[]>([]);
   const [elders, setElders] = useState<FamilyElder[]>([]);
@@ -94,6 +99,8 @@ export default function FamilyDashboard() {
 
     setSessionChecked(true);
     setApiState("loading");
+    setCheckInsLoading(true);
+    setCheckInsError("");
     setActorName(session.actor.displayName);
     setToken(session.accessToken);
     setNotice("正在读取已授权的老人关系。");
@@ -155,13 +162,17 @@ export default function FamilyDashboard() {
     void Promise.all([
       getFamilyToday(token, selectedElderId),
       getFamilyTrend(token, selectedElderId, trendDays),
-      getFamilyCarePlan(token, selectedElderId)
+      getFamilyCarePlan(token, selectedElderId),
+      getFamilyCheckIns(token, selectedElderId, 7)
     ])
-      .then(([todayData, trendData, planData]) => {
+      .then(([todayData, trendData, planData, checkInData]) => {
         if (!active) return;
         setToday(todayData);
         setTrend(trendData);
         setCarePlan(planData);
+        setCheckIns(checkInData.items);
+        setCheckInsError("");
+        setCheckInsLoading(false);
         setApiState("connected");
         setNotice(`已读取授权摘要、${trendData.items.length} 条趋势记录与私人关怀计划，当前老人：${todayData.elder.name}。`);
       })
@@ -170,6 +181,9 @@ export default function FamilyDashboard() {
         setToday(null);
         setTrend(null);
         setCarePlan([]);
+        setCheckIns([]);
+        setCheckInsLoading(false);
+        setCheckInsError(cause instanceof ApiError && cause.status === 403 ? "当前授权已撤回，暂时不能查看每日自述。" : "每日自述暂时无法读取，请稍后重试。");
         if (cause instanceof ApiError && cause.status === 401) {
           sessionStorage.removeItem("hearttrace.family.session");
           setToken(null);
@@ -367,6 +381,7 @@ export default function FamilyDashboard() {
             {page === "today" && <TodayView busy={actionBusy} today={today} action={action} onAction={recordAction} onNavigate={() => setPage("report")} />}
             {page === "report" && <ReportView today={today} />}
             {page === "trend" && <TrendView today={today} trend={trend} selectedDays={trendDays} onSelectDays={setTrendDays} />}
+            {page === "checkin" && <CheckInView items={checkIns} loading={checkInsLoading} error={checkInsError} />}
             {page === "risk" && <RiskView busy={actionBusy} today={today} action={action} onAction={recordAction} />}
             {page === "plan" && <PlanView busy={actionBusy} today={today} items={carePlan} onAction={recordAction} onAddItem={addCarePlan} onCompleteItem={completeCarePlan} />}
             {page === "privacy" && <PrivacyView today={today} />}
@@ -375,6 +390,16 @@ export default function FamilyDashboard() {
       </div>
     </main>
   );
+}
+
+function CheckInView({ items, loading, error }: { items: SharedCheckIn[]; loading: boolean; error: string }) {
+  const latest = items[items.length - 1];
+  const average = items.length ? (items.reduce((sum, item) => sum + item.mood + item.sleep + item.socialWillingness, 0) / (items.length * 3)).toFixed(1) : null;
+  return <div className="checkin-family-grid">
+    <Card className="checkin-family-hero"><div><p className="muted">老人主动分享的自述</p><h2>每天三个分数，帮助你温和地了解近况</h2><p>这里只展示老人主动分享的主观感受，不是诊断结果；如果你担心，请优先联系老人或专业人员。</p></div><Tag tone={latest ? "safe" : "calm"}>{latest ? `最近记录 ${latest.checkinDate}` : "暂无分享记录"}</Tag></Card>
+    <Card className="checkin-family-summary"><div className="card-heading"><div><p className="muted">最近 7 天</p><h2>自述概览</h2></div>{average && <strong className="checkin-average">{average}<small>/ 5 平均</small></strong>}</div>{loading && <div className="notification-empty">正在读取已分享的自述…</div>}{error && <div className="checkin-family-empty">{error}</div>}{!loading && !error && items.length === 0 && <div className="checkin-family-empty">老人还没有分享最近 7 天的自述，页面不会展示未授权内容。</div>}{!loading && !error && items.length > 0 && <div className="checkin-family-list">{[...items].reverse().map((item) => <article key={item.checkinDate}><time>{item.checkinDate}</time><div><span>心情 <b>{item.mood}</b>/5</span><span>睡眠 <b>{item.sleep}</b>/5</span><span>交流意愿 <b>{item.socialWillingness}</b>/5</span></div></article>)}</div>}</Card>
+    <Card className="checkin-family-note"><h3>怎么看这些记录？</h3><p>分数越低，表示老人当天的主观感受越困难。单日低分不等于疾病；如果连续多天偏低，建议先主动问候，必要时联系专业人员。</p><small>数据来源：老人端“每日自述” · 分享范围由老人本人随时控制</small></Card>
+  </div>;
 }
 
 function NotificationView({ notifications, loading, busyId, canOpenCare, onRefresh, onRead, onOpen }: { notifications: NotificationList; loading: boolean; busyId: string | null; canOpenCare: boolean; onRefresh: () => Promise<void>; onRead: (item: NotificationItem) => Promise<void>; onOpen: (item: NotificationItem) => Promise<void> }) {
