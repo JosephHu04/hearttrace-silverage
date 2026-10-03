@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ApiError, completeFamilyCarePlanItem, createFamilyCarePlanItem, getFamilyCarePlan, getFamilyCheckIns, getFamilyElders, getFamilyToday, getFamilyTrend, getNotifications, markNotificationRead, recordFamilyAction } from "@/lib/family-api";
-import type { FamilyAction, FamilyCarePlanItem, FamilyElder, FamilyToday, FamilyTrend, NotificationCategory, NotificationItem, NotificationList, SharedCheckIn } from "@/lib/types";
+import { ApiError, completeFamilyCarePlanItem, createFamilyCarePlanItem, getFamilyCarePlan, getFamilyCheckIns, getFamilyElders, getFamilyScreenings, getFamilyToday, getFamilyTrend, getNotifications, markNotificationRead, recordFamilyAction } from "@/lib/family-api";
+import type { FamilyAction, FamilyCarePlanItem, FamilyElder, FamilyToday, FamilyTrend, NotificationCategory, NotificationItem, NotificationList, ScreeningSummary, SharedCheckIn } from "@/lib/types";
 
 type PageKey = "today" | "report" | "trend" | "checkin" | "risk" | "notifications" | "plan" | "privacy";
 
@@ -55,6 +55,7 @@ export default function FamilyDashboard() {
   const [checkIns, setCheckIns] = useState<SharedCheckIn[]>([]);
   const [checkInsLoading, setCheckInsLoading] = useState(false);
   const [checkInsError, setCheckInsError] = useState("");
+  const [screenings, setScreenings] = useState<ScreeningSummary[]>([]);
   const [trendDays, setTrendDays] = useState<7 | 30>(7);
   const [carePlan, setCarePlan] = useState<FamilyCarePlanItem[]>([]);
   const [elders, setElders] = useState<FamilyElder[]>([]);
@@ -163,9 +164,10 @@ export default function FamilyDashboard() {
       getFamilyToday(token, selectedElderId),
       getFamilyTrend(token, selectedElderId, trendDays),
       getFamilyCarePlan(token, selectedElderId),
-      getFamilyCheckIns(token, selectedElderId, 7)
+      getFamilyCheckIns(token, selectedElderId, 7),
+      getFamilyScreenings(token, selectedElderId, trendDays)
     ])
-      .then(([todayData, trendData, planData, checkInData]) => {
+      .then(([todayData, trendData, planData, checkInData, screeningData]) => {
         if (!active) return;
         setToday(todayData);
         setTrend(trendData);
@@ -173,6 +175,7 @@ export default function FamilyDashboard() {
         setCheckIns(checkInData.items);
         setCheckInsError("");
         setCheckInsLoading(false);
+        setScreenings(screeningData.items);
         setApiState("connected");
         setNotice(`已读取授权摘要、${trendData.items.length} 条趋势记录与私人关怀计划，当前老人：${todayData.elder.name}。`);
       })
@@ -180,6 +183,7 @@ export default function FamilyDashboard() {
         if (!active) return;
         setToday(null);
         setTrend(null);
+        setScreenings([]);
         setCarePlan([]);
         setCheckIns([]);
         setCheckInsLoading(false);
@@ -380,7 +384,7 @@ export default function FamilyDashboard() {
           <>
             {page === "today" && <TodayView busy={actionBusy} today={today} action={action} onAction={recordAction} onNavigate={() => setPage("report")} />}
             {page === "report" && <ReportView today={today} />}
-            {page === "trend" && <TrendView today={today} trend={trend} selectedDays={trendDays} onSelectDays={setTrendDays} />}
+            {page === "trend" && <TrendView today={today} trend={trend} screenings={screenings} selectedDays={trendDays} onSelectDays={setTrendDays} />}
             {page === "checkin" && <CheckInView items={checkIns} loading={checkInsLoading} error={checkInsError} />}
             {page === "risk" && <RiskView busy={actionBusy} today={today} action={action} onAction={recordAction} />}
             {page === "plan" && <PlanView busy={actionBusy} today={today} items={carePlan} onAction={recordAction} onAddItem={addCarePlan} onCompleteItem={completeCarePlan} />}
@@ -463,7 +467,7 @@ function ReportView({ today }: { today: FamilyToday }) {
   </div>;
 }
 
-function TrendView({ today, trend, selectedDays, onSelectDays }: { today: FamilyToday; trend: FamilyTrend | null; selectedDays: 7 | 30; onSelectDays: (days: 7 | 30) => void }) {
+function TrendView({ today, trend, screenings, selectedDays, onSelectDays }: { today: FamilyToday; trend: FamilyTrend | null; screenings: ScreeningSummary[]; selectedDays: 7 | 30; onSelectDays: (days: 7 | 30) => void }) {
   const points = (trend?.items ?? []).flatMap((item) => typeof item.score === "number" ? [{ ...item, score: item.score }] : []);
   const chartPoints = points.map((item, index) => {
     const x = points.length === 1 ? 220 : (440 / (points.length - 1)) * index;
@@ -474,7 +478,7 @@ function TrendView({ today, trend, selectedDays, onSelectDays }: { today: Family
   return <div className="page-grid trend-grid">
     <Card className="trend-card"><div className="card-heading"><div><p className="muted">近 {selectedDays} 天</p><h2>{today.elder.name}的关怀记录</h2></div><div className="segmented"><button className={selectedDays === 7 ? "selected" : ""} onClick={() => onSelectDays(7)}>7 天</button><button className={selectedDays === 30 ? "selected" : ""} onClick={() => onSelectDays(30)}>30 天</button></div></div>{points.length === 0 ? <div className="empty-chart"><b>暂无有效的标准化评分</b><span>目前可查看已发布摘要的时间与关怀状态，不绘制推算分数。</span></div> : <><div className="chart-wrap"><div className="chart-y"><span>100</span><span>75</span><span>50</span><span>25</span></div><svg viewBox="0 0 450 120" role="img" aria-label={`近${selectedDays}天关怀趋势图`}><defs><linearGradient id="fill" x1="0" x2="0" y1="0" y2="1"><stop stopColor="#c9c6f4" stopOpacity=".55"/><stop offset="1" stopColor="#c9c6f4" stopOpacity="0"/></linearGradient></defs>{points.length > 1 && <path d={`M0,120 L${chartPoints} L440,120 Z`} fill="url(#fill)"/>}<polyline points={chartPoints} fill="none" stroke="#6f6ab5" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>{chartPoints.split(" ").map((point, index) => { const [cx, cy] = point.split(","); return <circle key={`${points[index].recordedAt}-${point}`} cx={cx} cy={cy} r="4" fill="#fff" stroke="#6f6ab5" strokeWidth="2"><title>{`${dateLabel(points[index].recordedAt)} · ${points[index].score} 分 · ${points[index].label}`}</title></circle>; })}</svg></div><div className="chart-labels">{points.map((item) => <span key={item.recordedAt}>{dateLabel(item.recordedAt)}</span>)}</div></>}</Card>
     <Card className="baseline-card"><p className="muted">已发布摘要记录</p><h3>按时间查看关怀状态</h3>{trend?.items.length ? <ul>{trend.items.map((item) => <li key={item.recordedAt}>{dateLabel(item.recordedAt)} · {item.label}</li>)}</ul> : <p>目前没有已发布的摘要。</p>}<Tag tone={today.status.level === "green" ? "safe" : "warm"}>{today.status.label}</Tag></Card>
-    <Card className="screening-card"><p className="muted">标准化筛查</p><h3>量表功能尚未开放</h3><p>当前只展示授权关怀摘要，没有标准化测评分数，也不计算个人分数基线。</p></Card>
+    <Card className="screening-card"><p className="muted">标准化筛查</p><h3>{screenings.length ? `最近已分享 ${screenings.length} 次` : "暂无本人分享的筛查"}</h3>{screenings.length ? <ul className="clean-list">{screenings.slice(0, 3).map((item) => <li key={item.id}><b>{item.instrumentName}</b>：{item.label}{item.completedAt ? ` · ${dateLabel(item.completedAt)}` : ""}</li>)}</ul> : <p>老人完成并主动分享后，这里只显示分层和关怀建议，不显示逐题答案或总分。</p>}<small>筛查结果不构成精神疾病诊断。</small></Card>
   </div>;
 }
 

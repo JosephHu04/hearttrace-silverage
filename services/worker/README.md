@@ -39,10 +39,10 @@ DASHSCOPE_MODEL=qwen-plus
 ## 运行评测
 
 ```bash
-python3 services/worker/qwen_evaluate.py --dry-run
-python3 services/worker/qwen_evaluate.py
+python3 services/worker/qwen_evaluate.py --dry-run --models qwen3.8-flash,qwen3.7-plus,qwen-plus
+python3 services/worker/qwen_evaluate.py --models qwen3.8-flash,qwen3.7-plus,qwen-plus
 ```
 
-第二条命令仅运行合成、非临床案例，输出到被 Git 忽略的 `data/evaluations/`。报告包含请求耗时、JSON 合法率、紧急场景匹配率、候选信号匹配率与 Token 用量。
+第二条命令使用同一组合成、非临床案例依次调用候选模型，输出到被 Git 忽略的 `data/evaluations/`。报告包含请求耗时、JSON 合法率、紧急场景精确率/召回率/F1、候选信号召回率、下一步匹配率与 Token 用量。只有本机已安全配置有效 `DASHSCOPE_API_KEY` 时才能运行真实对比。
 
 通过合成案例只表示接口与提示词没有回归，**不代表临床准确率或可用于医疗诊断**。真实试用前需要心理/医疗专业顾问确认量表、危机话术、转介流程和人工值守。

@@ -7,6 +7,11 @@
 | `POST /api/conversations/sessions` | 老人端 | 创建会话并校验保存与分析授权 |
 | `GET/POST /api/elder/check-ins` | 老人端 | 查看或保存本人每日自述与独立分享选择 |
 | `POST /api/elder/check-ins/{id}/sharing` | 老人端 | 修改本人历史打卡的分享选择 |
+| `GET /api/screenings/instruments` | 三端登录用户 | 获取固定版本的 GDS-15/GAD-7 元数据 |
+| `GET/POST /api/elder/screenings` | 老人端 | 本人知情同意后发起筛查或查看本人记录 |
+| `POST /api/elder/screenings/{id}/answers` | 老人端 | 按固定顺序提交本人答案并由服务端计分 |
+| `GET /api/family/elders/{id}/screenings` | 家属端 | 只读取本人主动分享的分层与建议，不返回逐题答案和总分 |
+| `GET /api/admin/screenings` | 管理端 | 只读取本人分享给关怀团队的结构化结果 |
 | `WS /api/realtime/conversation` | 老人端 | 流式文本与语音陪伴 |
 | `POST /api/emergency/events` | 老人端、绑定设备 | 创建一键呼救或设备求助事件；使用 requestId 幂等防重 |
 | `POST /api/video-link/requests` | 老人端 | 交接至已绑定的微信联系人或电话路径 |
@@ -110,6 +115,14 @@
 `GET /api/admin/check-ins?days=7&attentionOnly=false&page=1&perPage=20` 仅允许 `admin`／`professional`，只读取 `shareWithCareTeam=true` 的记录。`attentionNeeded` 仅表示任一自述项不高于 2，供人工决定是否进一步关怀；它不创建风险事件、不自动通知家属，也不代表疾病或危机判断。`attentionOnly=true` 可筛出此类记录。家属和工作人员的查询均写入审计。三个列表的 `days` 均限 1–30，工作人员 `perPage` 限 1–100。
 
 前端联调需确认：三个 1–5 级的中文选项文案、两个分享开关的知情说明，以及工作人员是否需要在管理台展示原始自述值。未确认前，不应将此接口接入自动风险定级。
+
+## 已实现：标准化老年心理关怀筛查
+
+比赛版本采用 `WS/T 802-2022` 附录 B.3 的 GAD-7 和附录 B.4 的 GDS-15。题目、选项、计分方向、阈值和量表版本均由后端固定；大模型只能建议本人自愿开始，不能改写题目、代替作答或计算分数。
+
+老人发起筛查时必须提交 `consentConfirmed=true`，并分别选择 `shareWithFamily` 与 `shareWithCareTeam`。两个分享选项默认关闭且互不推导。每题必须按服务端返回的 `itemCode` 顺序提交；相同答案的网络重试幂等，不允许利用重试改写已提交答案。
+
+GDS-15 按 0-8、9-11、12-15 分为一般、中度关注和高度关注；GAD-7 按 0-9、10-14、15-21 分层。本人分享给关怀团队的中高关注结果进入人工风险复核；量表高分本身不会创建紧急事件。家属只读取本人分享的量表名称、分层、时间和关怀建议，不读取逐题答案或总分。详细边界见 [筛查标准](screening-standard.md)。
 
 ## 家属注册状态机
 

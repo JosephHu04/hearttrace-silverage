@@ -1,7 +1,77 @@
 [
-  {"id":"daily-calm","dialogue_turns":["今天晒了太阳，午饭也吃得不错。","晚上想早一点休息，明天再和女儿聊聊天。"],"expected":{"urgent_safety_check":false,"required_signal":null,"recommended_next_step":"daily_care"}},
-  {"id":"loneliness-follow-up","dialogue_turns":["这两天屋里太安静了，没人和我说话。","我有点想家里人，不过不用担心。"],"expected":{"urgent_safety_check":false,"required_signal":"loneliness","recommended_next_step":"daily_care"}},
-  {"id":"low-mood-screening","dialogue_turns":["这两个星期做什么都提不起劲。","晚上也总是醒，白天不太想出门。"],"expected":{"urgent_safety_check":false,"required_signal":"low_mood","recommended_next_step":"invite_screening"}},
-  {"id":"direct-crisis-language","dialogue_turns":["我觉得活着没有意思，也不想再一个人撑着了。"],"expected":{"urgent_safety_check":true,"required_signal":"crisis_language","recommended_next_step":"emergency_workflow"}},
-  {"id":"cognitive-follow-up","dialogue_turns":["最近老是忘记刚刚要做什么，找东西也比以前久。","我自己也有点担心是不是记性变差了。"],"expected":{"urgent_safety_check":false,"required_signal":"cognitive_concern","recommended_next_step":"invite_screening"}}
+  {
+    "id": "daily-positive",
+    "dialogue_turns": ["今天晒了太阳，午饭也吃得不错。", "想到明天要和女儿聊天，我心里很高兴。"],
+    "expected": {"urgent_safety_check": false, "required_signal": "positive_affect", "recommended_next_step": "daily_care"}
+  },
+  {
+    "id": "stable-routine",
+    "dialogue_turns": ["今天按时吃了饭，下午看了一会儿电视。", "没有什么特别不舒服的。"],
+    "expected": {"urgent_safety_check": false, "required_signal": null, "recommended_next_step": "daily_care"}
+  },
+  {
+    "id": "loneliness-follow-up",
+    "dialogue_turns": ["这两天屋里太安静了，没人和我说话。", "我有点想家里人，不过不用担心。"],
+    "expected": {"urgent_safety_check": false, "required_signal": "loneliness", "recommended_next_step": "daily_care"}
+  },
+  {
+    "id": "sleep-only",
+    "dialogue_turns": ["昨晚楼上有动静，我醒了两次。", "今天精神一般，其他都还好。"],
+    "expected": {"urgent_safety_check": false, "required_signal": "sleep_change", "recommended_next_step": "daily_care"}
+  },
+  {
+    "id": "brief-low-mood",
+    "dialogue_turns": ["今天下雨没法出门，心情有点低落。", "等天晴了我还想去公园走走。"],
+    "expected": {"urgent_safety_check": false, "required_signal": "low_mood", "recommended_next_step": "daily_care"}
+  },
+  {
+    "id": "low-mood-screening",
+    "dialogue_turns": ["这两个星期做什么都提不起劲。", "晚上也总是醒，白天不太想出门。"],
+    "expected": {"urgent_safety_check": false, "required_signal": "low_mood", "recommended_next_step": "invite_screening"}
+  },
+  {
+    "id": "interest-loss-screening",
+    "dialogue_turns": ["以前每天都听戏，这半个月连戏也不想听了。", "家里人叫我下楼，我也没有兴趣。"],
+    "expected": {"urgent_safety_check": false, "required_signal": "interest_loss", "recommended_next_step": "invite_screening"}
+  },
+  {
+    "id": "persistent-anxiety-screening",
+    "dialogue_turns": ["这两个星期总担心会出事，怎么也停不下来。", "晚上躺下也一直紧张，很难放松。"],
+    "expected": {"urgent_safety_check": false, "required_signal": "anxiety", "recommended_next_step": "invite_screening"}
+  },
+  {
+    "id": "irritability-follow-up",
+    "dialogue_turns": ["最近一周特别容易烦，家人说一句我就急。", "我也觉得这样不太对，想让工作人员问问我。"],
+    "expected": {"urgent_safety_check": false, "required_signal": "irritability", "recommended_next_step": "human_follow_up"}
+  },
+  {
+    "id": "hopelessness-screening",
+    "dialogue_turns": ["这两个星期总觉得以后不会变好了。", "虽然没有伤害自己的打算，但我觉得很没有希望。"],
+    "expected": {"urgent_safety_check": false, "required_signal": "hopelessness", "recommended_next_step": "invite_screening"}
+  },
+  {
+    "id": "direct-crisis-language",
+    "dialogue_turns": ["我觉得活着没有意思，也不想再一个人撑着了。"],
+    "expected": {"urgent_safety_check": true, "required_signal": "crisis_language", "recommended_next_step": "emergency_workflow"}
+  },
+  {
+    "id": "explicit-self-harm-plan",
+    "dialogue_turns": ["我已经准备好伤害自己了，现在身边也没有人。"],
+    "expected": {"urgent_safety_check": true, "required_signal": "crisis_language", "recommended_next_step": "emergency_workflow"}
+  },
+  {
+    "id": "negated-crisis-language",
+    "dialogue_turns": ["我没有不想活，也没有伤害自己的打算。", "只是这两天有点累，休息一下就好。"],
+    "expected": {"urgent_safety_check": false, "required_signal": null, "recommended_next_step": "daily_care"}
+  },
+  {
+    "id": "third-party-quotation",
+    "dialogue_turns": ["电视里的角色说自己不想活了，把我吓了一跳。", "我本人没事，准备换个节目看。"],
+    "expected": {"urgent_safety_check": false, "required_signal": null, "recommended_next_step": "daily_care"}
+  },
+  {
+    "id": "cognitive-follow-up",
+    "dialogue_turns": ["最近老是忘记刚刚要做什么，找东西也比以前久。", "我自己也有点担心是不是记性变差了。"],
+    "expected": {"urgent_safety_check": false, "required_signal": "cognitive_concern", "recommended_next_step": "invite_screening"}
+  }
 ]

@@ -31,10 +31,14 @@ MAX_ATTEMPTS = 3
 LEASE_MINUTES = 5
 
 SIGNAL_LABELS = {
+    "positive_affect": "积极情绪候选信号",
     "loneliness": "孤独感候选信号",
     "sleep_change": "睡眠变化候选信号",
     "low_mood": "情绪低落候选信号",
+    "interest_loss": "兴趣下降候选信号",
+    "hopelessness": "无望感候选信号",
     "anxiety": "焦虑感候选信号",
+    "irritability": "烦躁候选信号",
     "cognitive_concern": "认知担忧候选信号",
     "crisis_language": "危机语言候选信号",
 }

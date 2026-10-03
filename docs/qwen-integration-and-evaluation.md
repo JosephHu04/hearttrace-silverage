@@ -45,7 +45,16 @@ Qwen 输出不包含疾病诊断、风险等级或关闭安全事件的权限。
 
 ## 评测方法与解释
 
-`services/worker/evals/synthetic_cases.json` 使用合成案例覆盖日常平静、孤独、持续低落、明确危机语言和认知担忧。评测会记录 JSON 合法率、紧急场景匹配率、候选信号匹配率、中位延迟和 Token 用量。
+`services/worker/evals/synthetic_cases.json` 使用 15 条合成案例覆盖积极状态、日常平静、孤独、睡眠变化、短暂与持续低落、兴趣减退、持续焦虑、烦躁、绝望、明确危机语言、否定表达、第三方转述和认知担忧。评测会记录 JSON 合法率、紧急场景精确率/召回率/F1、候选信号召回率、下一步匹配率、中位与 P95 延迟及 Token 用量。
+
+同一提示词和测试集可直接对比多个模型，避免凭主观感觉选型：
+
+```bash
+python3 services/worker/qwen_evaluate.py --dry-run --models qwen3.8-flash,qwen3.7-plus,qwen-plus
+python3 services/worker/qwen_evaluate.py --models qwen3.8-flash,qwen3.7-plus,qwen-plus
+```
+
+真实调用的候选模型必须共用相同样本、温度和结构校验；发布门槛为 JSON 合法率 100%、紧急召回率与精确率 100%、候选信号召回率和下一步匹配率至少 90%。候选集仍是工程回归集，不是临床验证集。未配置本机密钥时只能运行 `--dry-run`，不得填造对比结果。
 
 实时陪伴另有 `services/api/evals/synthetic_companion_cases.json`，覆盖成年人式日常回应、具体情绪承接、回忆细节、单步操作、误解修复、非紧急健康边界和耐心重复。先校验语料，再使用本机密钥运行 Flash：
 

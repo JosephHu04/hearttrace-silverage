@@ -17,9 +17,9 @@ DEFAULT_MODEL = "qwen-plus"
 
 SYSTEM_PROMPT = """你是“心迹银龄”的关怀分析助手。只分析已获得授权的对话摘要。
 只返回一个 JSON 对象，且仅包含以下五个键：candidate_signals、urgent_safety_check、recommended_next_step、family_summary、evidence_turn_indexes。
-candidate_signals 只能使用以下英文枚举值：loneliness、sleep_change、low_mood、anxiety、cognitive_concern、crisis_language；不得使用 depression、suicide、risk 或任何中文词。
+candidate_signals 只能使用以下英文枚举值：positive_affect、loneliness、sleep_change、low_mood、interest_loss、hopelessness、anxiety、irritability、cognitive_concern、crisis_language；不得使用 depression、suicide、risk 或任何中文词。
 recommended_next_step 只能使用 daily_care、invite_screening、human_follow_up、emergency_workflow。
-规则：不诊断疾病，不输出风险等级。仅明确自伤/自杀表达、明确生命安全危机或一键呼救时 urgent_safety_check 为 true。孤独、睡眠不好或一次低落不属于紧急事件。若对话明确出现持续两周的兴趣减退、情绪低落或难以控制的焦虑，应使用 invite_screening；认知担忧也应使用 invite_screening。证据下标只能引用输入对话数组。紧急安全确认必须进入 emergency_workflow。"""
+规则：不诊断疾病，不输出风险等级，不将对话换算为 GDS-15 或 GAD-7 分数。positive_affect 仅用于老人明确表达愉快、希望、兴趣或积极期待时。仅老人本人当前明确表达自伤/自杀意图、明确生命安全危机或一键呼救时 urgent_safety_check 为 true；否定表达、转述影视内容、谈论第三人或已经解除的历史事件不得判为当前紧急。孤独、睡眠不好或一次低落不属于紧急事件。若对话明确出现持续两周的兴趣减退、情绪低落、绝望或难以控制的焦虑，应使用 invite_screening；认知担忧也应使用 invite_screening。证据下标只能引用输入对话数组。紧急安全确认必须进入 emergency_workflow。"""
 
 
 @dataclass(frozen=True)
@@ -110,7 +110,10 @@ def _strip_code_fence(content: str) -> str:
 def _validate_analysis(analysis: Any, turn_count: int) -> None:
     if not isinstance(analysis, dict):
         raise RuntimeError("模型输出不是对象。")
-    allowed_signals = {"loneliness", "sleep_change", "low_mood", "anxiety", "cognitive_concern", "crisis_language"}
+    allowed_signals = {
+        "positive_affect", "loneliness", "sleep_change", "low_mood", "interest_loss",
+        "hopelessness", "anxiety", "irritability", "cognitive_concern", "crisis_language",
+    }
     allowed_steps = {"daily_care", "invite_screening", "human_follow_up", "emergency_workflow"}
     signals, indexes = analysis.get("candidate_signals"), analysis.get("evidence_turn_indexes")
     if not isinstance(signals, list) or any(signal not in allowed_signals for signal in signals):

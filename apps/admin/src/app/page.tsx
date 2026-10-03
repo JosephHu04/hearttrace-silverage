@@ -2,12 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ApiError, changeFamilyGrant, getAdminCheckIns, getAuditLogs, getElderAccounts, getEmergencyQueue, getFamilyGrants, getNotifications, getRegistrationApplications, getRiskDetail, getRiskQueue, markNotificationRead, performEmergencyAction, performRiskAction, reviewRegistrationApplication } from "@/lib/admin-api";
+import { ApiError, changeFamilyGrant, getAdminCheckIns, getAuditLogs, getElderAccounts, getEmergencyQueue, getFamilyGrants, getNotifications, getRegistrationApplications, getRiskDetail, getRiskQueue, getScreeningQueue, markNotificationRead, performEmergencyAction, performRiskAction, reviewRegistrationApplication } from "@/lib/admin-api";
 import { clearAdminSession, readAdminSession } from "@/lib/admin-session";
 import { AccountSetup } from "./account-setup";
-import type { Actor, AdminCheckIn, AuditFilters, AuditListResponse, AuthorizationScope, ElderAccount, EmergencyAction, EmergencyEvent, EmergencyStatus, FamilyGrant, GrantAction, NotificationCategory, NotificationItem, NotificationListResponse, RegistrationApplication, RiskAction, RiskDetail, RiskListItem, RiskStatus } from "@/lib/types";
+import type { Actor, AdminCheckIn, AuditFilters, AuditListResponse, AuthorizationScope, ElderAccount, EmergencyAction, EmergencyEvent, EmergencyStatus, FamilyGrant, GrantAction, NotificationCategory, NotificationItem, NotificationListResponse, RegistrationApplication, RiskAction, RiskDetail, RiskListItem, RiskStatus, ScreeningSummary } from "@/lib/types";
 
-type AdminView = "risk" | "emergency" | "checkins" | "relationships" | "notifications" | "audit" | "registrations";
+type AdminView = "risk" | "screenings" | "emergency" | "checkins" | "relationships" | "notifications" | "audit" | "registrations";
 
 const emptyAuditFilters: AuditFilters = { actorId: "", action: "", targetType: "", targetId: "", page: 1, perPage: 25 };
 
@@ -40,6 +40,10 @@ const auditActionLabels: Record<string, string> = {
   "analysis.skipped": "因授权变化跳过分析",
   "analysis.failed": "关怀分析任务失败",
   "analysis.summary_published": "发布已复核家属摘要",
+  "screening.started": "老人开始标准筛查",
+  "screening.completed": "老人完成标准筛查",
+  "screening.queue_viewed": "查看标准筛查队列",
+  "family.screenings_viewed": "家属查看筛查摘要",
   "notification.read": "读取站内通知",
   "notification.delivered": "确认通知投递",
   "notification.delivery_failed": "通知投递失败"
@@ -113,6 +117,7 @@ const actionableNotificationTargets = new Set(["risk_event", "emergency_event", 
 
 const viewHeadings: Record<AdminView, { eyebrow: string; title: string }> = {
   risk: { eyebrow: "风险复核 / 今日工作", title: "先处理需要人工判断的事项" },
+  screenings: { eyebrow: "标准筛查 / 人工复核", title: "只查看本人同意分享的标准化结果" },
   emergency: { eyebrow: "安全事件 / 紧急求助", title: "确认每一条求助都得到人工响应" },
   checkins: { eyebrow: "每日自述 / 人工关注", title: "只查看老人主动分享且需要关注的感受" },
   relationships: { eyebrow: "关系管理 / 授权范围", title: "让每一次访问都有明确授权依据" },
@@ -138,6 +143,7 @@ export default function AdminDashboard() {
   const [actor, setActor] = useState<Actor | null>(null);
   const [token, setToken] = useState("");
   const [risks, setRisks] = useState<RiskListItem[]>([]);
+  const [screenings, setScreenings] = useState<ScreeningSummary[]>([]);
   const [selected, setSelected] = useState<RiskDetail | null>(null);
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(true);
@@ -202,6 +208,9 @@ export default function AdminDashboard() {
         const queue = await getRiskQueue(session.accessToken);
         if (!active) return;
         setRisks(queue.items);
+        const screeningQueue = await getScreeningQueue(session.accessToken);
+        if (!active) return;
+        setScreenings(screeningQueue.items);
         const emergencyQueue = await getEmergencyQueue(session.accessToken);
         if (!active) return;
         setEmergencies(emergencyQueue.items);
@@ -389,6 +398,7 @@ export default function AdminDashboard() {
     setActiveView(view);
     setError("");
     if (view === "audit" && audits.items.length === 0) void loadAudits(emptyAuditFilters);
+    if (view === "screenings") void getScreeningQueue(token).then((queue) => setScreenings(queue.items)).catch(() => setError("读取标准筛查队列失败"));
     if (view === "registrations") {
       void getRegistrationApplications(token).then((queue) => setApplications(queue.items)).catch(() => setError("读取注册申请失败"));
     }
@@ -505,13 +515,14 @@ export default function AdminDashboard() {
         <div className="brand"><span>心</span><div><strong>心迹银龄</strong><small>管理工作台</small></div></div>
         <nav aria-label="管理端主导航">
           <button className={`nav-item ${activeView === "risk" ? "active" : ""}`} onClick={() => openView("risk")}><span>01</span>风险复核</button>
-          <button className={`nav-item ${activeView === "registrations" ? "active" : ""}`} onClick={() => openView("registrations")}><span>02</span>注册审核{applications.length > 0 && <em>{applications.length} 待办</em>}</button>
-          <button className={`nav-item ${activeView === "emergency" ? "active" : ""}`} onClick={() => openView("emergency")}><span>03</span>安全事件{emergencies.filter((item) => ["open", "acknowledged"].includes(item.status)).length > 0 && <em>{emergencies.filter((item) => ["open", "acknowledged"].includes(item.status)).length} 待办</em>}</button>
-          <button className={`nav-item ${activeView === "checkins" ? "active" : ""}`} onClick={() => openView("checkins")}><span>04</span>每日自述{checkIns.filter((item) => item.attentionNeeded).length > 0 && <em>{checkIns.filter((item) => item.attentionNeeded).length} 关注</em>}</button>
-          <button className={`nav-item ${activeView === "relationships" ? "active" : ""}`} onClick={() => openView("relationships")}><span>05</span>关系与授权<em>{grants.filter((grant) => grant.isActive).length} 生效</em></button>
-          <button className={`nav-item ${activeView === "notifications" ? "active" : ""}`} onClick={() => openView("notifications")}><span>06</span>通知中心{notifications.unreadCount > 0 && <em>{notifications.unreadCount} 未读</em>}</button>
-          <button className="nav-item" disabled><span>07</span>设备管理<em>待接入</em></button>
-          <button className={`nav-item ${activeView === "audit" ? "active" : ""}`} onClick={() => openView("audit")}><span>08</span>审计查询</button>
+          <button className={`nav-item ${activeView === "screenings" ? "active" : ""}`} onClick={() => openView("screenings")}><span>02</span>标准筛查{screenings.filter((item) => item.band === "moderate" || item.band === "high").length > 0 && <em>{screenings.filter((item) => item.band === "moderate" || item.band === "high").length} 关注</em>}</button>
+          <button className={`nav-item ${activeView === "registrations" ? "active" : ""}`} onClick={() => openView("registrations")}><span>03</span>注册审核{applications.length > 0 && <em>{applications.length} 待办</em>}</button>
+          <button className={`nav-item ${activeView === "emergency" ? "active" : ""}`} onClick={() => openView("emergency")}><span>04</span>安全事件{emergencies.filter((item) => ["open", "acknowledged"].includes(item.status)).length > 0 && <em>{emergencies.filter((item) => ["open", "acknowledged"].includes(item.status)).length} 待办</em>}</button>
+          <button className={`nav-item ${activeView === "checkins" ? "active" : ""}`} onClick={() => openView("checkins")}><span>05</span>每日自述{checkIns.filter((item) => item.attentionNeeded).length > 0 && <em>{checkIns.filter((item) => item.attentionNeeded).length} 关注</em>}</button>
+          <button className={`nav-item ${activeView === "relationships" ? "active" : ""}`} onClick={() => openView("relationships")}><span>06</span>关系与授权<em>{grants.filter((grant) => grant.isActive).length} 生效</em></button>
+          <button className={`nav-item ${activeView === "notifications" ? "active" : ""}`} onClick={() => openView("notifications")}><span>07</span>通知中心{notifications.unreadCount > 0 && <em>{notifications.unreadCount} 未读</em>}</button>
+          <button className="nav-item" disabled><span>08</span>设备管理<em>待接入</em></button>
+          <button className={`nav-item ${activeView === "audit" ? "active" : ""}`} onClick={() => openView("audit")}><span>09</span>审计查询</button>
         </nav>
         <div className="sidebar-note">
           <span className="connection-dot" />
@@ -622,7 +633,26 @@ export default function AdminDashboard() {
             )}
           </div>
         </section>
-        </> : activeView === "emergency" ? (
+        </> : activeView === "screenings" ? (
+          <section className="screening-console panel">
+            <div className="panel-heading"><div><p>本人授权分享</p><h2>标准化筛查记录</h2></div><span>{screenings.length} 项</span></div>
+            <p className="registration-intro">量表题目和计分固定在服务端，模型不能代答或改分。这里只显示结构化分层与建议，不显示逐题答案和聊天全文。</p>
+            <section className="metrics" aria-label="筛查概览">
+              <article><p>完成记录</p><strong>{screenings.filter((item) => item.status === "completed").length}</strong><small>本人同意分享给关怀团队</small></article>
+              <article><p>需要关注</p><strong>{screenings.filter((item) => item.band === "moderate").length}</strong><small>已自动进入人工复核</small></article>
+              <article className="urgent"><p>尽快评估</p><strong>{screenings.filter((item) => item.band === "high").length}</strong><small>优先查看对应风险事件</small></article>
+              <article><p>计分依据</p><strong className="text-value">WS/T 802</strong><small>版本固定、结果可追溯</small></article>
+            </section>
+            <div className="application-list">
+              {screenings.length === 0 && <div className="empty">当前没有本人授权分享的标准筛查记录</div>}
+              {screenings.map((item) => <article key={item.id} className="application-row">
+                <div><span className={`level ${item.band === "high" ? "orange" : item.band === "moderate" ? "yellow" : "green"}`}>{item.label}</span><strong>{item.elderName} · {item.instrumentName}</strong><p>{item.recommendation ?? "筛查正在进行中"}</p><small>{formatTime(item.completedAt ?? item.createdAt)} · {item.id}</small></div>
+                <div className="registration-actions"><button className="secondary" onClick={() => openView("risk")}>查看风险复核队列</button></div>
+              </article>)}
+            </div>
+            <p className="registration-intro">以上结果仅为标准化筛查提示，不构成精神疾病诊断；最终处置由受训人员结合实际情况完成。</p>
+          </section>
+        ) : activeView === "emergency" ? (
           <section className="review-layout emergency-console">
             <div className="queue-panel panel">
               <div className="panel-heading"><div><p>安全队列</p><h2>紧急求助</h2></div><span>{emergencies.length} 项</span></div>
@@ -753,6 +783,10 @@ export default function AdminDashboard() {
                   <option value="analysis.skipped">因授权变化跳过分析</option>
                   <option value="analysis.failed">关怀分析任务失败</option>
                   <option value="analysis.summary_published">发布已复核家属摘要</option>
+                  <option value="screening.started">老人开始标准筛查</option>
+                  <option value="screening.completed">老人完成标准筛查</option>
+                  <option value="screening.queue_viewed">查看标准筛查队列</option>
+                  <option value="family.screenings_viewed">家属查看筛查摘要</option>
                   <option value="notification.read">读取站内通知</option>
                   <option value="notification.delivered">确认通知投递</option>
                   <option value="notification.delivery_failed">通知投递失败</option>
@@ -771,6 +805,7 @@ export default function AdminDashboard() {
                   <option value="conversation_session">陪伴会话</option>
                   <option value="conversation_analysis">结构化关怀分析</option>
                   <option value="daily_insight">家属每日摘要</option>
+                  <option value="screening_session">标准筛查记录</option>
                   <option value="outbox_event">异步任务事件</option>
                   <option value="notification">站内通知</option>
                 </select>

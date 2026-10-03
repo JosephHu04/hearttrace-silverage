@@ -101,6 +101,22 @@ export type RiskActionResponse = {
   duplicate: boolean;
 };
 
+export type ScreeningSummary = {
+  id: string;
+  elderId: string;
+  elderName: string;
+  instrumentCode: "gds15" | "gad7";
+  instrumentName: string;
+  status: "in_progress" | "completed";
+  band: "normal" | "moderate" | "high" | null;
+  label: string;
+  recommendation: string | null;
+  completedAt: string | null;
+  createdAt: string;
+};
+
+export type ScreeningSummaryList = { items: ScreeningSummary[]; total: number };
+
 export type AuditLogItem = {
   id: string;
   actorId: string;

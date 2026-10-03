@@ -35,13 +35,13 @@ infra/              本地开发与部署配置
 3. 禁止提交 API 密钥、真实聊天、真实视频、真实联系方式或未授权样本。
 4. 紧急联络和防跌倒仅使用合成测试数据进行演示。
 
-硬件采购与终端验收规格见 [老人端触控终端与安全设备采购规格](docs/hardware-terminal-procurement.md)。
+硬件采购与终端验收规格见 [老人端触控终端与安全设备采购规格](docs/hardware-terminal-procurement.md)，视频联络的微信边界和推荐 RTC 路线见 [一键视频联络可行性](docs/video-call-feasibility.md)。
 
 ## 团队协作
 
 所有改动通过功能分支和 Pull Request 合并；CI 会校验仓库基础文档，检查并构建三个前端，测试核心 API。分支命名、冲突处理与审查要求见 [协作规则](CONTRIBUTING.md)。
 
-详细规划见 [总体技术规划书](docs/心迹银龄独立版总体技术规划书.docx)、[架构说明](docs/architecture.md)、[接口契约](docs/api-contract.md) 与 [决策记录](docs/decision-log.md)。
+详细规划见 [总体技术规划书](docs/心迹银龄独立版总体技术规划书.docx)、[架构说明](docs/architecture.md)、[接口契约](docs/api-contract.md)、[标准化筛查边界](docs/screening-standard.md)、[比赛提交执行计划](docs/competition-submission-plan-20261003.md) 与 [决策记录](docs/decision-log.md)。
 
 三端使用同一套后端、数据库和合并规则的执行清单见[三端整合执行清单](docs/three-client-integration-plan.md)。
 最近一轮稳定性与安全复核、已修问题和仍未完成的上线条件见[三端整合质量复核](docs/integration-quality-review-20260915.md)。

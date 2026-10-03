@@ -170,6 +170,7 @@ button:focus-visible, textarea:focus-visible, a:focus-visible {
 .feature-weather { background: var(--weather); }
 .feature-news { background: var(--news); }
 .feature-checkin { background: #e7ddf1; }
+.feature-screening { background: #eee8f8; text-decoration: none; }
 .feature-emergency {
   grid-column: 1 / -1;
   min-height: 190px;

@@ -450,6 +450,11 @@ export default function ElderCompanionPage() {
             <span>{checkIn ? "今天已记录 · 点一下可修改" : "用三个小问题告诉我今天的状态"}</span>
           </button>
 
+          <Link className="feature-tile feature-screening" href="/screening">
+            <strong>关怀小测</strong>
+            <span>本人愿意时，完成有国家标准依据的情绪关怀筛查</span>
+          </Link>
+
           <button className="feature-tile feature-emergency" type="button" disabled={emergencyState === "submitting" || emergencyState === "sent"} onClick={() => setEmergencyState("confirming")}>
             <strong>{emergencyState === "sent" ? "求助已发出" : "紧急呼救"}</strong>
             <span>{emergencyState === "sent" ? "家属和工作人员正在收到提醒" : "身体不舒服、跌倒或感到危险时点这里"}</span>

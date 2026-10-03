@@ -237,6 +237,52 @@ class DailyCheckIn(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
 
+class ScreeningSession(Base):
+    """A consented, versioned self-report screening session.
+
+    Conversation analysis never writes these scores.  Every score is derived
+    deterministically from the stored response options and an immutable
+    instrument version.
+    """
+
+    __tablename__ = "screening_sessions"
+    __table_args__ = (
+        Index("ix_screening_sessions_elder_time", "elder_id", "created_at"),
+        Index("ix_screening_sessions_staff_queue", "share_with_care_team", "status", "completed_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=uuid_string)
+    elder_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    instrument_code: Mapped[str] = mapped_column(String(32))
+    instrument_version: Mapped[str] = mapped_column(String(32))
+    standard_reference: Mapped[str] = mapped_column(String(120))
+    status: Mapped[str] = mapped_column(String(24), default="in_progress", index=True)
+    share_with_family: Mapped[bool] = mapped_column(Boolean, default=False)
+    share_with_care_team: Mapped[bool] = mapped_column(Boolean, default=False)
+    consent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    total_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    result_band: Mapped[Optional[str]] = mapped_column(String(24), nullable=True)
+    recommendation: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class ScreeningAnswer(Base):
+    __tablename__ = "screening_answers"
+    __table_args__ = (
+        UniqueConstraint("session_id", "item_code", name="uq_screening_answers_session_item"),
+        Index("ix_screening_answers_session_time", "session_id", "answered_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=uuid_string)
+    session_id: Mapped[str] = mapped_column(ForeignKey("screening_sessions.id"), index=True)
+    item_code: Mapped[str] = mapped_column(String(32))
+    response_value: Mapped[str] = mapped_column(String(16))
+    score_value: Mapped[int] = mapped_column(Integer)
+    answered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class RiskEvent(Base):
     __tablename__ = "risk_events"
     __table_args__ = (
