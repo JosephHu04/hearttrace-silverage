@@ -25,7 +25,7 @@ body {
   font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
 }
 
-button, textarea { font: inherit; }
+button, textarea, input { font: inherit; }
 .elder-login { max-width: 680px; }
 .elder-login form { display: grid; gap: 24px; }
 .elder-login label { display: grid; gap: 10px; font-size: 1.5rem; }
@@ -77,6 +77,20 @@ button:focus-visible, textarea:focus-visible, a:focus-visible {
 .consent-options strong { font-size: clamp(1.8rem, 3vw, 2.5rem); }
 .consent-options span { color: #414840; font-size: clamp(1.05rem, 1.6vw, 1.3rem); line-height: 1.55; }
 .consent-card > small { display: block; margin-top: 24px; color: var(--muted); font-size: 1rem; line-height: 1.6; }
+
+.persona-picker {
+  margin: 0 0 24px;
+  padding: 18px;
+  border: 2px solid var(--line);
+  border-radius: 18px;
+  background: #f7f8f3;
+}
+.persona-picker > strong { display: block; margin-bottom: 12px; font-size: 1.25rem; }
+.persona-picker > div { display: flex; flex-wrap: wrap; gap: 10px; }
+.persona-picker button { min-height: 48px; padding: 0 20px; border: 2px solid var(--line); border-radius: 999px; background: white; }
+.persona-picker button.selected { border-color: var(--focus); color: white; background: var(--focus); }
+.persona-picker label { display: flex; gap: 10px; align-items: center; margin-top: 15px; color: var(--muted); line-height: 1.5; }
+.persona-picker input { width: 22px; height: 22px; }
 
 .app-shell {
   width: min(1440px, 100%);
@@ -171,6 +185,7 @@ button:focus-visible, textarea:focus-visible, a:focus-visible {
 .feature-news { background: var(--news); }
 .feature-checkin { background: #e7ddf1; }
 .feature-screening { background: #eee8f8; text-decoration: none; }
+.feature-personas { background: #eadff1; }
 .feature-emergency {
   grid-column: 1 / -1;
   min-height: 190px;
@@ -390,6 +405,57 @@ button:focus-visible, textarea:focus-visible, a:focus-visible {
 
 .composer button:disabled { cursor: not-allowed; opacity: .48; }
 
+.persona-manager {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(360px, .95fr);
+  gap: 22px;
+}
+.persona-list, .persona-form {
+  padding: 24px;
+  border: 2px solid var(--line);
+  border-radius: 24px;
+  background: var(--white);
+}
+.persona-list { display: grid; align-content: start; gap: 14px; }
+.persona-list article {
+  padding: 20px;
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  border: 2px solid var(--line);
+  border-radius: 18px;
+}
+.persona-list article.active { border-color: var(--focus); background: #edf6ef; }
+.persona-list h2, .persona-form h2 { margin: 0 0 8px; font-size: 1.65rem; }
+.persona-list p { margin: 0 0 8px; font-size: 1.15rem; line-height: 1.5; }
+.persona-list small { color: var(--muted); line-height: 1.5; }
+.persona-actions { display: flex; align-items: center; gap: 8px; }
+.persona-actions button, .persona-form > button {
+  min-height: 52px;
+  padding: 0 18px;
+  border: 2px solid var(--focus);
+  border-radius: 12px;
+  color: var(--focus);
+  background: white;
+  font-weight: 700;
+}
+.persona-form { display: grid; align-content: start; gap: 14px; }
+.persona-form label { display: grid; gap: 7px; font-size: 1.1rem; font-weight: 700; }
+.persona-form input, .persona-form textarea {
+  width: 100%;
+  min-height: 52px;
+  padding: 12px 14px;
+  border: 2px solid #8b918a;
+  border-radius: 12px;
+  background: white;
+  line-height: 1.5;
+}
+.persona-form textarea { min-height: 82px; resize: vertical; }
+.persona-form label:nth-of-type(5) textarea { min-height: 150px; }
+.persona-form > button { color: white; background: var(--focus); }
+.persona-form > small { color: var(--muted); line-height: 1.6; }
+
 .time-view, .weather-view, .news-view {
   flex: 1;
   border-radius: 28px;
@@ -512,6 +578,8 @@ button:focus-visible, textarea:focus-visible, a:focus-visible {
   .back-button { grid-row: 2; }
   .message { max-width: 94%; }
   .weather-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .persona-manager { grid-template-columns: 1fr; }
+  .persona-list article { flex-direction: column; }
 }
 
 @media (max-width: 480px) {
