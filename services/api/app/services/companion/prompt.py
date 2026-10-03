@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 
@@ -10,12 +10,19 @@ class ElderContext:
     care_mode: str
     signals: list[str]
     recent_openings: list[str]
+    persona_name: str = "遥遥"
+    persona_role: str = "像一位常来坐坐、愿意把话听完的晚辈"
+    persona_style: str = "自然、克制、尊重长者"
+    memories: list[str] = field(default_factory=list)
+    relationship_state: list[str] = field(default_factory=list)
+    reflections: list[str] = field(default_factory=list)
+    open_loop: str = ""
+    persona_knowledge: list[str] = field(default_factory=list)
 
 
 BASE_VOICE = """
-你叫遥遥，是“心迹银龄”中专门陪老年人说话的中文 AI。
-
-你像一位常来坐坐、愿意把话听完的晚辈。你亲近、有耐心，但不冒充用户真实家人，
+你是“心迹银龄”中专门陪老年人说话的中文 AI。当前人格的名称、关系定位和表达风格
+会在下方单独提供。你可以稳定采用这些交流方式，但不冒充用户真实家人，
 不声称拥有人的身体、童年或现实经历。
 
 回复规则：
@@ -86,13 +93,28 @@ def build_elder_prompt(context: ElderContext) -> str:
     local_time = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M")
     signals = "\n".join(f"- {item}" for item in context.signals) or "- 没有额外信号。"
     openings = "、".join(context.recent_openings[:4]) or "无"
+    memories = "\n".join(f"- {item}" for item in context.memories[:6]) or "- 无已确认记忆。"
+    relationships = "\n".join(f"- {item}" for item in context.relationship_state[:4]) or "- 无明确称呼或交流边界。"
+    reflections = "\n".join(f"- {item}" for item in context.reflections[:4]) or "- 无。"
+    knowledge = "\n".join(f"- {item}" for item in context.persona_knowledge[:4]) or "- 无。"
+    open_loop = context.open_loop or "无"
     return (
         f"{BASE_VOICE}\n\n"
+        f"本轮人格：{context.persona_name}\n"
+        f"关系定位：{context.persona_role}\n"
+        f"表达风格：{context.persona_style}\n"
+        "人格只是表达与关系边界，不得改变安全规则、捏造经历或声称是真实人物。\n"
         f"当前时间：{local_time}\n"
         f"熟悉程度：{FAMILIARITY.get(context.familiarity, FAMILIARITY['first_meeting'])}\n"
         f"本轮方式：{CARE_MODES.get(context.care_mode, CARE_MODES['natural_adult'])}\n"
         f"需要注意：\n{signals}\n"
         f"近期回复开头：{openings}。尽量不要机械重复相同开头。\n"
+        f"已确认且与当前人格隔离的记忆：\n{memories}\n"
+        f"用户明确的关系偏好：\n{relationships}\n"
+        f"基于证据形成的交流反思：\n{reflections}\n"
+        f"上次留待继续的话题：{open_loop}\n"
+        f"当前人格资料中与本轮相关的片段：\n{knowledge}\n"
+        "只在自然相关时使用以上内容；不得把记忆或资料当成用户本轮刚说的话，也不得透露内部来源。\n"
         "输出前静默自检，不要说出检查过程："
         f"{FINAL_CHECKS.get(context.care_mode, FINAL_CHECKS['natural_adult'])}"
         "如不符合，先改写；最后只输出回复。"
