@@ -280,9 +280,24 @@ class StaffCheckInListOut(ApiModel):
     total: int
 
 
+class ConversationPersona(ApiModel):
+    model_config = ConfigDict(extra="forbid", alias_generator=to_camel, populate_by_name=True)
+
+    id: str = Field(default="yaoyao", min_length=1, max_length=64, pattern=r"^[a-zA-Z0-9_-]+$")
+    name: str = Field(default="遥遥", min_length=1, max_length=40)
+    role: str = Field(
+        default="像一位常来坐坐、愿意把话听完的晚辈",
+        min_length=2,
+        max_length=300,
+    )
+    style: str = Field(default="自然、克制、尊重长者", min_length=2, max_length=300)
+    scenarios: list[str] = Field(default_factory=list, max_length=12)
+
+
 class ConversationSessionCreate(ApiModel):
     save_messages: bool = False
     allow_analysis: bool = False
+    persona: ConversationPersona = Field(default_factory=ConversationPersona)
 
 
 class ConversationSessionOut(ApiModel):

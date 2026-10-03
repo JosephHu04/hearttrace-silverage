@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 from dataclasses import dataclass
 
 from app.services.companion.prompt import ElderContext
@@ -37,6 +38,11 @@ _MEMORY_PATTERNS = (
     re.compile(r"(?:请|你要|帮我)?记住[：,:，\s]*([^。！？\n]{2,100})"),
     re.compile(r"别忘了[：,:，\s]*([^。！？\n]{2,100})"),
 )
+_TEMPORARY_MEMORY_CUES = ("今天", "刚才", "现在", "今晚", "昨晚", "昨天", "明天", "这次", "待会儿")
+_SENSITIVE_CANDIDATE_CUES = (
+    "药", "过敏", "血压", "血糖", "病", "医院", "复诊", "手术", "疼", "不舒服",
+    "身份证", "银行卡", "密码", "验证码", "转账", "账户", "不想活", "想死", "摔倒", "诈骗",
+)
 
 
 @dataclass(frozen=True)
@@ -48,6 +54,121 @@ class CarePlan:
     context: ElderContext
     requested_memories: list[str]
     direct_reply: str | None
+
+
+@dataclass(frozen=True)
+class MemoryContext:
+    memories: list[str]
+    relationship_state: list[str]
+    reflections: list[str]
+    open_loop: str
+
+
+def _memory_candidate(message: str) -> tuple[str, str] | None:
+    """Return a conservative stable fact candidate and its normalized key."""
+    text = message.strip().strip("，。！？,.!?")
+    if not text or any(mark in message for mark in ("？", "?")):
+        return None
+    if any(cue in text for cue in (*_TEMPORARY_MEMORY_CUES, *_SENSITIVE_CANDIDATE_CUES)):
+        return None
+    if re.search(r"不是\s*[^，。！？,.!?]+\s*[，,]?\s*(?:是|而是)", text):
+        return None
+    relation = r"女儿|儿子|孙子|孙女|老伴|妻子|丈夫|姐姐|妹妹|哥哥|弟弟|妈妈|爸爸"
+    patterns = (
+        (rf"^我(?:的)?(?P<who>{relation})(?:叫|名字是)(?P<value>[^，。！？,.!?]{{1,30}})$", "family_name"),
+        (rf"^我(?:的)?(?P<who>{relation})住(?:在)?(?P<value>[^，。！？,.!?]{{1,40}})$", "family_home"),
+        (r"^我的生日是(?P<value>[^，。！？,.!?]{2,30})$", "birthday"),
+        (r"^我以前在(?P<value>[^，。！？,.!?]{1,40})(?:工作|上班)$", "past_work"),
+        (r"^我不吃(?P<value>[^，。！？,.!?]{1,30})$", "food_avoidance"),
+        (r"^我(?P<pref>喜欢|爱|不喜欢|不爱)(?P<value>[^，。！？,.!?]{1,40})$", "preference"),
+    )
+    for pattern, kind in patterns:
+        match = re.match(pattern, text)
+        if not match:
+            continue
+        values = match.groupdict()
+        value = values.get("value", "").strip()
+        who = values.get("who", "").strip()
+        pref = values.get("pref", "").strip()
+        polarity = "positive" if pref in {"喜欢", "爱"} else "negative" if pref else ""
+        key = "|".join(filter(None, (kind, who, polarity, "".join(value.lower().split()))))
+        normalized = {
+            "family_name": f"我{who}叫{value}",
+            "family_home": f"我{who}住在{value}",
+            "past_work": f"我以前在{value}工作",
+            "preference": f"我{'喜欢' if polarity == 'positive' else '不喜欢'}{value}",
+        }.get(kind, text)
+        return key, normalized
+    return None
+
+
+def _tokens(text: str) -> set[str]:
+    compact = "".join(text.lower().split())
+    words = set(re.findall(r"[a-z0-9_]+", compact))
+    chinese = "".join(char for char in compact if "\u4e00" <= char <= "\u9fff")
+    words.update(chinese[index:index + 2] for index in range(max(0, len(chinese) - 1)))
+    return {item for item in words if item}
+
+
+def derive_memory_context(history: list[dict[str, str]], query: str) -> MemoryContext:
+    """Derive traceable memory from saved user turns without a second data store.
+
+    The caller must only pass persisted history. Repeating a safe stable fact twice
+    promotes it; explicit requests are available immediately. Corrections supersede
+    older values in the context while the original message remains in the ledger.
+    """
+    user_turns = [item.get("content", "") for item in history if item.get("role") == "user"]
+    explicit: list[str] = []
+    candidate_counts: Counter[str] = Counter()
+    candidate_content: dict[str, str] = {}
+    relationships: dict[str, str] = {}
+    reflections: list[str] = []
+    open_loop = ""
+    corrections: list[tuple[str, str]] = []
+
+    for message in user_turns:
+        explicit.extend(item for item in _requested_memories(message) if item not in explicit)
+        candidate = _memory_candidate(message)
+        if candidate:
+            key, content = candidate
+            candidate_counts[key] += 1
+            candidate_content[key] = content
+        correction = re.search(
+            r"不是\s*([^，。！？,.!?]{1,40})\s*[，,]?\s*(?:是|而是)\s*([^，。！？,.!?]{1,60})",
+            message,
+        )
+        if correction:
+            corrections.append(tuple(part.strip() for part in correction.groups()))
+        address_value = r"[‘'\"“]?([^，。！？,.!?‘'\"”]{1,12}?)[’'\"”]?(?:就行|就好|吧|即可)?(?=$|[，。！？,.!?])"
+        avoided = re.search(r"(?:请)?(?:别|不要)(?:再)?(?:叫|称呼)我(?:为|作)?" + address_value, message)
+        preferred = re.search(r"(?:请)?(?:叫|称呼|喊)我(?:为|作)?" + address_value, message)
+        if avoided:
+            relationships["address_boundary"] = f"不要称呼用户为“{avoided.group(1).strip()}”"
+        elif preferred:
+            relationships["preferred_address"] = f"用户希望被称呼为“{preferred.group(1).strip()}”"
+        boundary = re.search(r"我(?:不喜欢|不想|不愿意)([^。！？\n]{2,50})", message)
+        if boundary and any(cue in boundary.group(1) for cue in ("你", "被", "问", "叫", "称呼", "建议", "语气", "安慰")):
+            relationships["communication_boundary"] = f"用户明确表示不喜欢或不愿意{boundary.group(1).strip()}"
+        loop = re.search(r"(?:下次|改天|以后)(?:再)?聊(?:聊)?[：,:，\s]*([^。！？\n]{1,60})", message)
+        if loop:
+            open_loop = loop.group(1).strip()
+
+    memories = [*explicit, *(content for key, content in candidate_content.items() if candidate_counts[key] >= 2)]
+    for old, new in corrections:
+        memories = [item for item in memories if old not in item]
+        memories.append(f"用户更正：不是{old}，是{new}")
+    memories = list(dict.fromkeys(memories))
+    query_tokens = _tokens(query)
+    recall_all = any(cue in query for cue in ("还记得", "你记得", "我说过", "以前说过"))
+    ranked = sorted(
+        memories,
+        key=lambda item: (len(query_tokens & _tokens(item)), memories.index(item)),
+        reverse=True,
+    )
+    selected = ranked[:6] if recall_all else [item for item in ranked if query_tokens & _tokens(item)][:6]
+    for value in relationships.values():
+        reflections.append(f"与用户交流时应遵守这项明确边界：{value}")
+    return MemoryContext(selected, list(relationships.values()), reflections, open_loop)
 
 
 def _compact(message: str) -> str:
@@ -116,6 +237,9 @@ def plan_care_turn(
     turn_count: int,
     recent_user_messages: list[str],
     recent_openings: list[str],
+    persona: dict[str, object] | None = None,
+    memory_context: MemoryContext | None = None,
+    persona_knowledge: list[str] | None = None,
 ) -> CarePlan:
     compact = _compact(message)
     familiarity = "first_meeting" if turn_count < 4 else "getting_familiar" if turn_count < 24 else "long_term"
@@ -156,7 +280,26 @@ def plan_care_turn(
     else:
         care_mode = "natural_adult"
 
-    context = ElderContext(familiarity, care_mode, signals, recent_openings)
+    profile = persona or {
+        "name": "遥遥",
+        "role": "像一位常来坐坐、愿意把话听完的晚辈",
+        "style": "自然、克制、尊重长者",
+    }
+    memory = memory_context or MemoryContext([], [], [], "")
+    context = ElderContext(
+        familiarity,
+        care_mode,
+        signals,
+        recent_openings,
+        persona_name=str(profile.get("name", "遥遥")),
+        persona_role=str(profile.get("role", "愿意把话听完的陪伴者")),
+        persona_style=str(profile.get("style", "自然、克制、尊重长者")),
+        memories=memory.memories,
+        relationship_state=memory.relationship_state,
+        reflections=memory.reflections,
+        open_loop=memory.open_loop,
+        persona_knowledge=persona_knowledge or [],
+    )
     memories = _requested_memories(message)
     safety = _safety_reply(message)
     if safety:

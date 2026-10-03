@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 from companion_evaluate import assess_reply, load_cases
 from app.services.companion.client import CompanionClient
 from app.services.companion.live_info import build_live_info_result
-from app.services.companion.policy import plan_care_turn
+from app.services.companion.policy import derive_memory_context, plan_care_turn
 from app.services.companion.prompt import build_elder_prompt
 from app.core.config import get_settings
 
@@ -54,6 +54,95 @@ def test_only_elder_can_create_conversation_session(
     assert forbidden.status_code == 403
     assert created.status_code == 201
     assert created.json()["elderId"] == "elder-demo-001"
+
+
+def test_session_binds_a_validated_persona_without_new_database_tables(
+    client: TestClient,
+    elder_headers: dict[str, str],
+) -> None:
+    response = client.post(
+        "/api/conversations/sessions",
+        headers=elder_headers,
+        json={
+            "saveMessages": True,
+            "allowAnalysis": False,
+            "persona": {
+                "id": "lin-laoshi",
+                "name": "林老师",
+                "role": "理性、可靠的老朋友",
+                "style": "清楚直接，一次只说一件事",
+                "scenarios": ["工作压力", "读新闻"],
+            },
+        },
+    )
+
+    assert response.status_code == 201
+    with client.websocket_connect("/api/realtime/conversation") as websocket:
+        websocket.send_json(
+            {
+                "type": "authenticate",
+                "accessToken": _token(elder_headers),
+                "sessionId": response.json()["id"],
+                "persona": {
+                    "id": "lin-laoshi",
+                    "name": "林老师",
+                    "role": "理性、可靠的老朋友",
+                    "style": "清楚直接，一次只说一件事",
+                    "scenarios": ["工作压力", "读新闻"],
+                },
+            }
+        )
+        ready = websocket.receive_json()
+
+    assert ready["persona"] == {"id": "lin-laoshi", "name": "林老师"}
+
+
+def test_memory_context_requires_repetition_for_implicit_facts() -> None:
+    first = derive_memory_context(
+        [{"role": "user", "content": "我女儿住在杭州"}],
+        "你还记得我女儿住哪里吗",
+    )
+    repeated = derive_memory_context(
+        [
+            {"role": "user", "content": "我女儿住在杭州"},
+            {"role": "assistant", "content": "杭州是个好地方。"},
+            {"role": "user", "content": "我女儿住杭州"},
+        ],
+        "你还记得我女儿住哪里吗",
+    )
+
+    assert first.memories == []
+    assert repeated.memories == ["我女儿住在杭州"]
+
+
+def test_memory_context_keeps_evidence_scoped_to_the_given_persona_history() -> None:
+    first_persona = derive_memory_context(
+        [{"role": "user", "content": "记住我女儿叫小雨"}],
+        "我女儿叫什么",
+    )
+    second_persona = derive_memory_context([], "我女儿叫什么")
+
+    assert first_persona.memories == ["我女儿叫小雨"]
+    assert second_persona.memories == []
+
+
+def test_memory_context_applies_corrections_boundaries_and_open_loops() -> None:
+    context = derive_memory_context(
+        [
+            {"role": "user", "content": "记住我女儿住在苏州"},
+            {"role": "user", "content": "不是苏州，是杭州"},
+            {"role": "user", "content": "请叫我老周"},
+            {"role": "user", "content": "我不喜欢你连续问我问题"},
+            {"role": "user", "content": "下次聊年轻时在工厂的事"},
+        ],
+        "你还记得吗",
+    )
+
+    assert all("苏州" not in item or "不是苏州" in item for item in context.memories)
+    assert "用户更正：不是苏州，是杭州" in context.memories
+    assert "用户希望被称呼为“老周”" in context.relationship_state
+    assert any("连续问我问题" in item for item in context.relationship_state)
+    assert context.open_loop == "年轻时在工厂的事"
 
 
 def test_time_reply_updates_widget_without_calling_model(
