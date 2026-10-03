@@ -10,7 +10,7 @@ const API_ORIGIN = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:80
   .replace(/\/$/, "");
 const API_BASE = `${API_ORIGIN}/api`;
 
-type ActivePanel = "home" | "chat" | "personas" | "time" | "weather" | "news" | "checkin";
+type ActivePanel = "home" | "chat" | "time" | "weather" | "news" | "checkin";
 type ConsentMode = "private" | "care";
 type EmergencyState = "idle" | "confirming" | "submitting" | "sent" | "error";
 type ChatMessage = { id: string; role: "user" | "assistant"; content: string; at: Date | null };
@@ -107,6 +107,7 @@ export default function ElderCompanionPage() {
   const [personasLoaded, setPersonasLoaded] = useState(false);
   const [selectedPersonaId, setSelectedPersonaId] = useState(DEFAULT_PERSONA.id);
   const [autoPersona, setAutoPersona] = useState(true);
+  const [personaManagerOpen, setPersonaManagerOpen] = useState(false);
   const [personaDraft, setPersonaDraft] = useState({ name: "", role: "", style: "", scenarios: "", knowledge: "" });
   const [weather, setWeather] = useState<Weather | null>(null);
   const [news, setNews] = useState<NewsItem[]>([]);
@@ -458,6 +459,7 @@ export default function ElderCompanionPage() {
     setPersonas((current) => [...current, persona]);
     setPersonaDraft({ name: "", role: "", style: "", scenarios: "", knowledge: "" });
     restartWithPersona(persona.id, "", persona);
+    setPersonaManagerOpen(false);
   }
 
   function removePersona(personaId: string) {
@@ -598,10 +600,56 @@ export default function ElderCompanionPage() {
             <span>本人愿意时，完成有国家标准依据的情绪关怀筛查</span>
           </Link>
 
-          <button className="feature-tile feature-personas" type="button" onClick={() => setActivePanel("personas")}>
-            <strong>陪伴人格</strong>
-            <span>当前是 {selectedPersona.name}，可新增和管理不同陪伴方式</span>
-          </button>
+          <section className="persona-home-card" aria-labelledby="persona-home-title">
+            <div className="persona-home-heading">
+              <div>
+                <p>当前陪伴者</p>
+                <h2 id="persona-home-title">{selectedPersona.name}</h2>
+                <span>{selectedPersona.role}</span>
+              </div>
+              <button type="button" aria-expanded={personaManagerOpen} onClick={() => setPersonaManagerOpen((open) => !open)}>
+                {personaManagerOpen ? "收起管理" : "添加或管理陪伴者"}
+              </button>
+            </div>
+            <div className="persona-quick-list" aria-label="在首页选择陪伴者">
+              {personas.map((persona) => (
+                <button
+                  className={persona.id === selectedPersona.id ? "selected" : ""}
+                  type="button"
+                  key={persona.id}
+                  onClick={() => restartWithPersona(persona.id)}
+                >
+                  <strong>{persona.name}</strong>
+                  <span>{persona.style}</span>
+                </button>
+              ))}
+            </div>
+            {personaManagerOpen && (
+              <div className="persona-manager">
+                <section className="persona-list" aria-label="已有人格">
+                  {personas.map((persona) => (
+                    <article className={persona.id === selectedPersona.id ? "active" : ""} key={persona.id}>
+                      <div><h2>{persona.name}</h2><p>{persona.role}</p><small>{persona.style}</small></div>
+                      <div className="persona-actions">
+                        <button type="button" onClick={() => { restartWithPersona(persona.id); setPersonaManagerOpen(false); }}>选择</button>
+                        {persona.id !== DEFAULT_PERSONA.id && <button type="button" onClick={() => removePersona(persona.id)}>删除</button>}
+                      </div>
+                    </article>
+                  ))}
+                </section>
+                <form className="persona-form" onSubmit={savePersona}>
+                  <h2>新增陪伴者</h2>
+                  <label>名称<input required minLength={2} maxLength={40} value={personaDraft.name} onChange={(event) => setPersonaDraft((value) => ({ ...value, name: event.target.value }))} placeholder="例如：林老师" /></label>
+                  <label>关系定位<textarea required maxLength={300} value={personaDraft.role} onChange={(event) => setPersonaDraft((value) => ({ ...value, role: event.target.value }))} placeholder="例如：理性、可靠的老朋友" /></label>
+                  <label>说话风格<textarea required maxLength={300} value={personaDraft.style} onChange={(event) => setPersonaDraft((value) => ({ ...value, style: event.target.value }))} placeholder="例如：清楚直接，一次只说一件事" /></label>
+                  <label>适用场景<input value={personaDraft.scenarios} onChange={(event) => setPersonaDraft((value) => ({ ...value, scenarios: event.target.value }))} placeholder="用逗号分隔，例如：工作压力，读新闻" /></label>
+                  <label>人格资料<textarea maxLength={30000} value={personaDraft.knowledge} onChange={(event) => setPersonaDraft((value) => ({ ...value, knowledge: event.target.value }))} placeholder="可粘贴背景资料；用空行分段，聊天时只取相关片段" /></label>
+                  <button type="submit">保存并选择</button>
+                  <small>资料只保存在当前浏览器和当前老人账号下；每位陪伴者使用独立会话，避免记忆混在一起。</small>
+                </form>
+              </div>
+            )}
+          </section>
 
           <button className="feature-tile feature-emergency" type="button" disabled={emergencyState === "submitting" || emergencyState === "sent"} onClick={() => setEmergencyState("confirming")}>
             <strong>{emergencyState === "sent" ? "求助已发出" : "紧急呼救"}</strong>
@@ -629,7 +677,7 @@ export default function ElderCompanionPage() {
         <section className={`panel-view panel-${activePanel}`}>
           <header className="panel-header">
             <button className="back-button" type="button" onClick={() => setActivePanel("home")}>返回首页</button>
-            <h1>{activePanel === "chat" ? `和${selectedPersona.name}聊聊` : activePanel === "personas" ? "陪伴人格" : activePanel === "time" ? "现在时间" : activePanel === "weather" ? "今日天气" : activePanel === "checkin" ? "每日自述" : "最新资讯"}</h1>
+            <h1>{activePanel === "chat" ? `和${selectedPersona.name}聊聊` : activePanel === "time" ? "现在时间" : activePanel === "weather" ? "今日天气" : activePanel === "checkin" ? "每日自述" : "最新资讯"}</h1>
           </header>
 
           {activePanel === "chat" && (
@@ -661,32 +709,6 @@ export default function ElderCompanionPage() {
                   disabled={busy}
                 />
                 <button type="submit" disabled={busy || status !== "可以使用"}>发送</button>
-              </form>
-            </div>
-          )}
-
-          {activePanel === "personas" && (
-            <div className="persona-manager">
-              <section className="persona-list" aria-label="已有人格">
-                {personas.map((persona) => (
-                  <article className={persona.id === selectedPersona.id ? "active" : ""} key={persona.id}>
-                    <div><h2>{persona.name}</h2><p>{persona.role}</p><small>{persona.style}</small></div>
-                    <div className="persona-actions">
-                      <button type="button" onClick={() => restartWithPersona(persona.id)}>选择</button>
-                      {persona.id !== DEFAULT_PERSONA.id && <button type="button" onClick={() => removePersona(persona.id)}>删除</button>}
-                    </div>
-                  </article>
-                ))}
-              </section>
-              <form className="persona-form" onSubmit={savePersona}>
-                <h2>新增人格</h2>
-                <label>名称<input required minLength={2} maxLength={40} value={personaDraft.name} onChange={(event) => setPersonaDraft((value) => ({ ...value, name: event.target.value }))} placeholder="例如：林老师" /></label>
-                <label>关系定位<textarea required maxLength={300} value={personaDraft.role} onChange={(event) => setPersonaDraft((value) => ({ ...value, role: event.target.value }))} placeholder="例如：理性、可靠的老朋友" /></label>
-                <label>说话风格<textarea required maxLength={300} value={personaDraft.style} onChange={(event) => setPersonaDraft((value) => ({ ...value, style: event.target.value }))} placeholder="例如：清楚直接，一次只说一件事" /></label>
-                <label>适用场景<input value={personaDraft.scenarios} onChange={(event) => setPersonaDraft((value) => ({ ...value, scenarios: event.target.value }))} placeholder="用逗号分隔，例如：工作压力，读新闻" /></label>
-                <label>人格资料<textarea maxLength={30000} value={personaDraft.knowledge} onChange={(event) => setPersonaDraft((value) => ({ ...value, knowledge: event.target.value }))} placeholder="可粘贴背景资料；用空行分段，聊天时只取相关片段" /></label>
-                <button type="submit">保存并选择</button>
-                <small>自定义人格和资料只保存在当前浏览器、当前老人账号下；每个人格使用独立会话，避免对话和记忆混在一起。</small>
               </form>
             </div>
           )}
