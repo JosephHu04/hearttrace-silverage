@@ -776,6 +776,7 @@ export default function ElderCompanionPage() {
             <summary>账户与隐私</summary>
             <div>
               <button type="button" onClick={() => { void resetConversationConsent(); }}>停止保存与分析 / 重新选择</button>
+              <Link href="/companion-3d">3D 角色动作样机</Link>
               <Link href="/account/security">修改密码</Link>
               <button type="button" onClick={logout}>退出账号</button>
             </div>
