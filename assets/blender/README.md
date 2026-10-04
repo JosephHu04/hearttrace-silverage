@@ -6,6 +6,7 @@
 
 - `reference/yaoyao-turnaround-v1.png`：基于现有立绘生成的正面、侧面、背面和四分之三视图，仅用于原创角色建模参考。
 - `reference/{xiaohe,tuantuan,nuannuan}-turnaround-v1.png`：三套兼容同一关节锚点的皮肤建模参考。
+- `apps/elder/public/companion/concepts/xiaohe-hero-idle-v2.png`：小禾正式模型的材质、灯光、五指手型和自然待机姿态目标稿，用于比赛展示和建模验收，不替代可动 GLB。
 - `yaoyao-blockout-v1.blend`：第一版低模骨架样机，用于验证独立肢体、动作命名和 GLB 管线，不是最终美术资产。
 - `exports/yaoyao-blockout-v1.glb`：网页预览用带骨架动作模型。
 - `exports/yaoyao-blockout-preview-v1.png`：样机快照。
