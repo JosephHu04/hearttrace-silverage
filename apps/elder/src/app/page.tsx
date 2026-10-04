@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 
 // All three clients configure the API origin. Accept the older /api suffix too.
 const API_ORIGIN = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000")
@@ -13,6 +14,7 @@ const API_BASE = `${API_ORIGIN}/api`;
 type ActivePanel = "home" | "chat" | "time" | "weather" | "news" | "checkin";
 type ConsentMode = "private" | "care";
 type EmergencyState = "idle" | "confirming" | "submitting" | "sent" | "error";
+type CompanionVisualState = "idle" | "listening" | "thinking" | "speaking" | "alert" | "offline";
 type ChatMessage = { id: string; role: "user" | "assistant"; content: string; at: Date | null };
 type Weather = {
   location: string;
@@ -529,6 +531,16 @@ export default function ElderCompanionPage() {
 
   const dateText = now ? new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "long", day: "numeric", weekday: "long" }).format(now) : "正在读取日期";
   const dayPeriod = !now ? "" : now.getHours() < 6 ? "凌晨" : now.getHours() < 12 ? "上午" : now.getHours() < 18 ? "下午" : "晚上";
+  const latestMessage = messages[messages.length - 1];
+  const companionVisualState: CompanionVisualState = emergencyState !== "idle"
+    ? "alert"
+    : status === "暂时离线" || status === "连接不稳"
+      ? "offline"
+      : status === "正在连接"
+        ? "thinking"
+        : busy
+          ? latestMessage?.role === "assistant" ? "speaking" : "thinking"
+          : activePanel === "chat" ? "listening" : "idle";
 
   if (!accessToken) return <main className="consent-shell">正在确认登录状态…</main>;
 
@@ -571,8 +583,11 @@ export default function ElderCompanionPage() {
       {activePanel === "home" && (
         <section className="feature-grid" aria-label="主要功能">
           <button className="feature-tile feature-chat" type="button" onClick={() => setActivePanel("chat")}>
-            <strong>陪我聊聊</strong>
-            <span>点一下，说说心里话</span>
+            <span className="feature-chat-copy">
+              <strong>陪我聊聊</strong>
+              <span>点一下，说说心里话</span>
+            </span>
+            <CompanionAvatar name={selectedPersona.name} state={companionVisualState} compact />
           </button>
 
           <button className="feature-tile feature-time" type="button" onClick={() => setActivePanel("time")}>
@@ -602,6 +617,9 @@ export default function ElderCompanionPage() {
 
           <section className="persona-home-card" aria-labelledby="persona-home-title">
             <div className="persona-home-heading">
+              <button className="companion-launch" type="button" onClick={() => setActivePanel("chat")} aria-label={`和${selectedPersona.name}聊聊`}>
+                <CompanionAvatar name={selectedPersona.name} state={companionVisualState} />
+              </button>
               <div>
                 <p>当前陪伴者</p>
                 <h2 id="persona-home-title">{selectedPersona.name}</h2>
@@ -682,6 +700,10 @@ export default function ElderCompanionPage() {
 
           {activePanel === "chat" && (
             <div className="chat-layout">
+              <div className="chat-companion-bar">
+                <CompanionAvatar name={selectedPersona.name} state={companionVisualState} compact />
+                <p>您慢慢说，{selectedPersona.name}在听。</p>
+              </div>
               <div className="messages" aria-live="polite">
                 {messages.map((message) => (
                   <article className={`message message-${message.role}`} key={message.id}>
@@ -786,4 +808,29 @@ export default function ElderCompanionPage() {
 
 function RatingQuestion({ label, value, onChange, labels }: { label: string; value: number; onChange: (value: number) => void; labels: string[] }) {
   return <fieldset className="rating-question"><legend>{label}</legend><div>{labels.map((text, index) => { const score = index + 1; return <label key={text} className={value === score ? "selected" : ""}><input type="radio" name={label} checked={value === score} onChange={() => onChange(score)} /><span>{score}</span><small>{text}</small></label>; })}</div></fieldset>;
+}
+
+const COMPANION_STATE_LABELS: Record<CompanionVisualState, string> = {
+  idle: "我在这里",
+  listening: "正在听您说",
+  thinking: "正在认真想",
+  speaking: "正在和您说话",
+  alert: "正在处理提醒",
+  offline: "正在重新连接"
+};
+
+function CompanionAvatar({ name, state, compact = false }: { name: string; state: CompanionVisualState; compact?: boolean }) {
+  const label = COMPANION_STATE_LABELS[state];
+  return (
+    <div className={`companion-avatar companion-${state}${compact ? " companion-compact" : ""}`} role="status" aria-live="polite" aria-atomic="true">
+      <div className="companion-portrait" aria-hidden="true">
+        <span className="companion-halo" />
+        <Image src="/companion/yaoyao-avatar-v1.png" width={246} height={256} sizes={compact ? "92px" : "190px"} alt="" priority />
+        <span className="companion-wave companion-wave-one" />
+        <span className="companion-wave companion-wave-two" />
+        <span className="companion-wave companion-wave-three" />
+      </div>
+      <span className="companion-caption"><strong>{name}</strong><small>{label}</small></span>
+    </div>
+  );
 }
