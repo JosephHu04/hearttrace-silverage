@@ -90,7 +90,7 @@ export default function Companion3DPage() {
       <section className={styles.motionSection} id="motion-system">
         <div className={styles.sectionHeading}>
           <div><p>AMBIENT MOTION SYSTEM</p><h2>站着，也要像在陪伴</h2></div>
-          <span>待机不是单一循环，而是一组低频、自然、不打扰老人的行为组合。</span>
+          <span>待机不是单一循环，而是一组低频、自然、不打扰老人的行为组合。<br /><Link className={styles.motionPreviewLink} href="/companion-3d/rig-preview">体验当前动作工程预览 →</Link></span>
         </div>
         <div className={styles.motionGrid}>
           {motionStates.map((motion) => (

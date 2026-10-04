@@ -51,12 +51,12 @@ export default function RigPreviewPage() {
             <span aria-hidden="true">!</span>
             <div>
               <strong>这是动作底座，不是正式小禾</strong>
-              <p>脸型、孩童比例、服装、表情和中文口型尚未换成最终版本。现在重点看肩、肘、腕、手指、脊柱与重心是否真实联动。</p>
+              <p>当前外套和裤装仍是工程版型，脸型、孩童比例、表情与中文口型还需按视觉稿制作。请重点看肩、肘、腕、手指、脊柱与重心的联动。</p>
             </div>
           </div>
 
           <div className={styles.actionHeading}>
-            <div><p>5 个真实动作片段</p><h2>点一下亲自验收</h2></div>
+            <div><p>5 种可体验动作</p><h2>点一下亲自验收</h2></div>
             <span>招手结束后会自动回到自然待机。</span>
           </div>
 
@@ -78,7 +78,7 @@ export default function RigPreviewPage() {
           <dl className={styles.specs}>
             <div><dt>骨骼</dt><dd>65 根</dd></div>
             <div><dt>手部</dt><dd>完整手指链</dd></div>
-            <div><dt>动作</dt><dd>5 段已接入</dd></div>
+            <div><dt>动作</dt><dd>5 种已接入</dd></div>
             <div><dt>用途</dt><dd>内部动作验收</dd></div>
           </dl>
         </aside>

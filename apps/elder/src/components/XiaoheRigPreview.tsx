@@ -1,9 +1,9 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useRef } from "react";
-import { Canvas } from "@react-three/fiber";
+import { Suspense, useCallback, useEffect, useMemo, useRef } from "react";
+import { Canvas, useFrame } from "@react-three/fiber";
 import { ContactShadows, Environment, OrbitControls, useAnimations, useGLTF } from "@react-three/drei";
-import { Group, LoopOnce, LoopRepeat } from "three";
+import { Bone, Group, LoopRepeat, Quaternion, Vector3 } from "three";
 
 export const RIG_ACTIONS = [
   "Idle_Base",
@@ -31,35 +31,116 @@ type ModelProps = {
 function RigModel({ requestedAction, onPlaying }: ModelProps) {
   const group = useRef<Group>(null);
   const returnTimer = useRef<number | null>(null);
-  const { scene, animations } = useGLTF("/companion/candidates/xiaohe-rig-base-v1.glb");
+  const time = useRef(0);
+  const actionTime = useRef(0);
+  const currentAction = useRef<RigAction>("Idle_Base");
+  const { scene, animations } = useGLTF("/companion/preview/xiaohe-motion-v2.glb");
   const { actions } = useAnimations(animations, group);
+  const bones = useMemo(() => ({
+    head: scene.getObjectByName("Head") as Bone | undefined,
+    spine: scene.getObjectByName("spine_02") as Bone | undefined,
+    rightUpperArm: scene.getObjectByName("upperarm_r") as Bone | undefined,
+    rightLowerArm: scene.getObjectByName("lowerarm_r") as Bone | undefined,
+    rightHand: scene.getObjectByName("hand_r") as Bone | undefined,
+    leftUpperArm: scene.getObjectByName("upperarm_l") as Bone | undefined
+  }), [scene]);
+  const rotation = useMemo(() => new Quaternion(), []);
+  const screenAxis = useMemo(() => new Vector3(0, 0, 1), []);
+  const turnAxis = useMemo(() => new Vector3(0, 1, 0), []);
+  const worldPosition = useMemo(() => new Vector3(), []);
+  const childPosition = useMemo(() => new Vector3(), []);
+  const currentDirection = useMemo(() => new Vector3(), []);
+  const desiredDirection = useMemo(() => new Vector3(), []);
+  const worldRotation = useMemo(() => new Quaternion(), []);
+  const parentRotation = useMemo(() => new Quaternion(), []);
+  const targetRotation = useMemo(() => new Quaternion(), []);
+  const fingerBones = useMemo(() => {
+    const fingers: Bone[] = [];
+    scene.traverse((object) => {
+      if (object instanceof Bone && /^(index|middle|ring|pinky|thumb)_/.test(object.name)) {
+        fingers.push(object);
+      }
+    });
+    return fingers;
+  }, [scene]);
+
+  useFrame((_, delta) => {
+    time.current += delta;
+    actionTime.current += delta;
+    const t = time.current;
+    const add = (bone: Bone | undefined, axis: Vector3, radians: number) => {
+      if (bone) bone.quaternion.premultiply(rotation.setFromAxisAngle(axis, radians));
+    };
+    const pointBone = (bone: Bone | undefined, nextBone: Bone | undefined, target: Vector3, amount: number) => {
+      if (!bone || !nextBone || !bone.parent) return;
+      bone.updateWorldMatrix(true, true);
+      bone.getWorldPosition(worldPosition);
+      nextBone.getWorldPosition(childPosition);
+      currentDirection.subVectors(childPosition, worldPosition).normalize();
+      desiredDirection.copy(target).normalize();
+      rotation.setFromUnitVectors(currentDirection, desiredDirection);
+      bone.getWorldQuaternion(worldRotation);
+      bone.parent.getWorldQuaternion(parentRotation);
+      targetRotation.copy(parentRotation.invert()).multiply(rotation).multiply(worldRotation);
+      bone.quaternion.slerp(targetRotation, amount);
+      bone.updateWorldMatrix(true, true);
+    };
+
+    // Small, asynchronous head, torso and hand movement keeps the idle alive.
+    const breathing = Math.sin(t * 2.2);
+    const lookPhase = (t % 9.5) / 9.5;
+    const look = Math.sin(Math.PI * Math.min(1, Math.max(0, (lookPhase - .14) / .66))) ** 2;
+    const shiftPhase = ((t + 3.5) % 12) / 12;
+    const shift = Math.sin(Math.PI * Math.min(1, Math.max(0, (shiftPhase - .17) / .61))) ** 2;
+    add(bones.spine, screenAxis, breathing * .011 + shift * .024);
+    add(bones.spine, turnAxis, look * .022);
+    add(bones.head, turnAxis, Math.sin(t * .87) * .025 + Math.sin(t * 1.47) * .007 + look * .072);
+    add(bones.head, screenAxis, Math.sin(t * 1.12) * .012);
+    add(bones.leftUpperArm, screenAxis, Math.sin(t * 1.53 + .8) * .012 + shift * .015);
+    for (const finger of fingerBones) finger.quaternion.slerp(targetRotation.identity(), .14);
+
+    if (currentAction.current === "Idle_Wave") {
+      const length = 2.8;
+      const progress = Math.min(1, actionTime.current / length);
+      const ease = Math.sin(progress * Math.PI) ** 2;
+      const side = (bones.rightUpperArm?.getWorldPosition(worldPosition).x ?? -1) >= 0 ? 1 : -1;
+      pointBone(bones.rightUpperArm, bones.rightLowerArm, new Vector3(side * .9, .75, .05), ease);
+      pointBone(bones.rightLowerArm, bones.rightHand, new Vector3(side * .08, .98, .08), ease);
+      add(bones.rightHand, screenAxis, Math.sin(progress * Math.PI * 6) * .16 * ease);
+      for (const finger of fingerBones) {
+        if (finger.name.endsWith("_r")) finger.quaternion.slerp(targetRotation.identity(), ease * .7);
+      }
+    } else if (currentAction.current === "Talk" || currentAction.current === "Sitting_Talk") {
+      add(bones.head, screenAxis, Math.sin(t * 3.4) * .018);
+      add(bones.rightHand, screenAxis, Math.sin(t * 2.6) * .045);
+    }
+  });
 
   const play = useCallback((name: RigAction) => {
-    const next = actions[name];
+    const next = name === "Idle_Wave" ? actions.Idle_Base : actions[name];
     if (!next) return;
 
     if (returnTimer.current !== null) window.clearTimeout(returnTimer.current);
     Object.values(actions).forEach((action) => action?.fadeOut(0.22));
     next.reset().fadeIn(0.28);
 
-    if (name === "Idle_Wave") {
-      next.setLoop(LoopOnce, 1);
-      next.clampWhenFinished = true;
-    } else {
-      next.setLoop(LoopRepeat, Infinity);
-      next.clampWhenFinished = false;
-    }
+    next.setLoop(LoopRepeat, Infinity);
+    next.clampWhenFinished = false;
 
     next.play();
+    currentAction.current = name;
+    actionTime.current = 0;
     onPlaying(name);
 
     if (name === "Idle_Wave") {
-      const duration = Math.max(1.4, next.getClip().duration);
+      const duration = 2.8;
       returnTimer.current = window.setTimeout(() => {
         next.fadeOut(0.24);
         const idle = actions.Idle_Base;
         if (!idle) return;
         idle.reset().setLoop(LoopRepeat, Infinity).fadeIn(0.3).play();
+        currentAction.current = "Idle_Base";
+        actionTime.current = 0;
         onPlaying("Idle_Base");
         returnTimer.current = null;
       }, duration * 1000);
@@ -89,7 +170,7 @@ type Props = {
 export function XiaoheRigPreview({ action, onPlaying }: Props) {
   return (
     <Canvas
-      camera={{ position: [0, 0.15, 7.6], fov: 35 }}
+      camera={{ position: [0, 0.15, 10.8], fov: 35 }}
       dpr={[1, 1.75]}
       gl={{ antialias: true, alpha: false }}
       shadows
@@ -97,13 +178,13 @@ export function XiaoheRigPreview({ action, onPlaying }: Props) {
     >
       <color attach="background" args={["#18251f"]} />
       <fog attach="fog" args={["#18251f", 9, 16]} />
-      <ambientLight intensity={1.25} />
-      <directionalLight position={[4, 7, 6]} intensity={3.2} castShadow color="#fff3df" />
-      <directionalLight position={[-4, 3, 4]} intensity={2.2} color="#a8e0c1" />
-      <pointLight position={[0, 4, -3]} intensity={1.8} color="#d8c7ff" />
+      <ambientLight intensity={0.55} />
+      <directionalLight position={[4, 7, 6]} intensity={1.45} castShadow color="#fff3df" />
+      <directionalLight position={[-4, 3, 4]} intensity={0.65} color="#a8e0c1" />
+      <pointLight position={[0, 4, -3]} intensity={0.55} color="#d8c7ff" />
       <Suspense fallback={null}>
         <RigModel requestedAction={action} onPlaying={onPlaying} />
-        <Environment preset="studio" environmentIntensity={0.45} />
+        <Environment preset="studio" environmentIntensity={0.22} />
       </Suspense>
       <ContactShadows position={[0, -2.07, 0]} opacity={0.52} scale={7} blur={2.8} far={4.5} />
       <OrbitControls
@@ -120,4 +201,4 @@ export function XiaoheRigPreview({ action, onPlaying }: Props) {
   );
 }
 
-useGLTF.preload("/companion/candidates/xiaohe-rig-base-v1.glb");
+useGLTF.preload("/companion/preview/xiaohe-motion-v2.glb");

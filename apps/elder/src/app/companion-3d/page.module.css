@@ -326,6 +326,7 @@
 .sectionHeading p { margin: 0 0 8px; color: #3d7658; font-size: .76rem; font-weight: 900; letter-spacing: .13em; }
 .sectionHeading h2 { margin: 0; font-size: clamp(2rem, 3.4vw, 3.5rem); letter-spacing: -.04em; }
 .sectionHeading > span { max-width: 520px; color: #6a756e; line-height: 1.7; }
+.motionPreviewLink { margin-top: 8px; display: inline-flex; align-items: center; color: #2e6a49; font-weight: 850; text-decoration: underline; text-underline-offset: 4px; }
 .motionGrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 15px; }
 .motionGrid article { min-height: 285px; padding: 24px; border: 1px solid rgba(53, 70, 59, .12); border-radius: 24px; display: flex; flex-direction: column; background: rgba(255, 255, 255, .77); box-shadow: 0 14px 36px rgba(48, 61, 52, .07); }
 .motionTop { display: flex; align-items: center; justify-content: space-between; }

@@ -45,3 +45,12 @@ blender --background \
 ```
 
 输出目录已加入 `.gitignore`，避免未通过美术验收的大型二进制文件污染 Git 历史。
+
+## 2026-10-05 工程迭代：着装与动作 V2
+
+- 使用 `scripts/refine_xiaohe_candidate.py` 在同一套 65 根骨骼上生成连续外套、袖子、阔腿裤、袜子和发饰，并保留原始动画及手指权重。
+- 浏览器验收页改为工程着装模型；待机增加低频环顾和重心变化，招手改由肩、肘、腕配合抬手，完成后回到待机。
+- GLB 约 6.5 MB，低于 12 MB 目标；供内部验收的模型复制到 `apps/elder/public/companion/preview/xiaohe-motion-v2.glb`，使队友可重复打开验收页。它未接入老人端正式首页。
+- 当前仍未通过正式美术验收：脸部年龄感、肩部与袖口交界、布料细节、眨眼、情绪表情和中文口型都与视觉稿有距离。下一阶段需在 Blender 中做正式角色雕刻、蒙皮和表情键。
+
+连续服装的环形网格与骨骼权重插值参考了 ProgramAsWeights 的 [开源角色脚本](https://github.com/programasweights/avatar/blob/main/tools/build-gangnam-character.py)（MIT，Copyright © 2026 ProgramAsWeights），许可全文见 `THIRD_PARTY_NOTICES.md`。
