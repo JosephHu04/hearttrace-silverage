@@ -5,6 +5,7 @@
 ## 当前产物
 
 - `reference/yaoyao-turnaround-v1.png`：基于现有立绘生成的正面、侧面、背面和四分之三视图，仅用于原创角色建模参考。
+- `reference/{xiaohe,tuantuan,nuannuan}-turnaround-v1.png`：三套兼容同一关节锚点的皮肤建模参考。
 - `yaoyao-blockout-v1.blend`：第一版低模骨架样机，用于验证独立肢体、动作命名和 GLB 管线，不是最终美术资产。
 - `exports/yaoyao-blockout-v1.glb`：网页预览用带骨架动作模型。
 - `exports/yaoyao-blockout-preview-v1.png`：样机快照。
@@ -17,7 +18,13 @@
 blender --background --python assets/blender/scripts/create_yaoyao_blockout.py
 ```
 
-脚本会重建 `.blend`、GLB 和预览 PNG，不依赖手工操作状态。
+脚本会重建 `.blend`、GLB 和预览 PNG，不依赖手工操作状态。可在命令末尾传入 `yaoyao`、`xiaohe`、`tuantuan` 或 `nuannuan`：
+
+```bash
+blender --background --python assets/blender/scripts/create_yaoyao_blockout.py -- xiaohe
+```
+
+四套皮肤使用完全相同的 18 根骨骼名称、关节位置和 Action 合同；网页只替换 GLB 模型，不重写动作逻辑。
 
 ## 动作合同
 

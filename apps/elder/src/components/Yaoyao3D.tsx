@@ -19,6 +19,15 @@ export const YAOYAO_ACTIONS = [
 
 export type YaoyaoAction = (typeof YAOYAO_ACTIONS)[number];
 
+export const COMPANION_SKINS = [
+  { id: "yaoyao", name: "遥遥", description: "温柔青年", swatch: "#75a78a" },
+  { id: "xiaohe", name: "小禾", description: "双丸子头小女孩", swatch: "#ec9b66" },
+  { id: "tuantuan", name: "团团", description: "蓝黄运动装小男孩", swatch: "#6fa5df" },
+  { id: "nuannuan", name: "暖暖", description: "温柔短发女性", swatch: "#cf7d8b" }
+] as const;
+
+export type CompanionSkin = (typeof COMPANION_SKINS)[number]["id"];
+
 const ACTION_LABELS: Record<YaoyaoAction, string> = {
   Idle_Base: "自然待机",
   Idle_Wave: "招手问候",
@@ -32,18 +41,21 @@ const ACTION_LABELS: Record<YaoyaoAction, string> = {
 };
 
 type ModelProps = {
+  skin: CompanionSkin;
   requestedAction: YaoyaoAction;
   onPlaying: (action: YaoyaoAction) => void;
 };
 
-function Model({ requestedAction, onPlaying }: ModelProps) {
+function Model({ skin, requestedAction, onPlaying }: ModelProps) {
   const group = useRef<Group>(null);
-  const { scene, animations } = useGLTF("/companion/yaoyao-blockout-v1.glb");
+  const returnTimer = useRef<number | null>(null);
+  const { scene, animations } = useGLTF(`/companion/${skin}-blockout-v1.glb`);
   const { actions } = useAnimations(animations, group);
 
   const play = useCallback((name: YaoyaoAction) => {
     const next = actions[name];
     if (!next) return;
+    if (returnTimer.current !== null) window.clearTimeout(returnTimer.current);
     Object.values(actions).forEach((action) => action?.fadeOut(0.2));
     next.reset().fadeIn(0.22);
     if (name === "Idle_Base") {
@@ -58,12 +70,13 @@ function Model({ requestedAction, onPlaying }: ModelProps) {
 
     if (name !== "Idle_Base") {
       const duration = Math.max(1.2, next.getClip().duration);
-      window.setTimeout(() => {
+      returnTimer.current = window.setTimeout(() => {
         next.fadeOut(0.22);
         const idle = actions.Idle_Base;
         if (!idle) return;
         idle.reset().setLoop(LoopRepeat, Infinity).fadeIn(0.25).play();
         onPlaying("Idle_Base");
+        returnTimer.current = null;
       }, duration * 1000);
     }
   }, [actions, onPlaying]);
@@ -72,25 +85,31 @@ function Model({ requestedAction, onPlaying }: ModelProps) {
     play(requestedAction);
   }, [play, requestedAction]);
 
+  useEffect(() => () => {
+    if (returnTimer.current !== null) window.clearTimeout(returnTimer.current);
+  }, []);
+
   return (
-    <group ref={group} position={[0, -2.9, 0]}>
+    <group ref={group} position={[0, -1.3, 0]} scale={0.65}>
       <primitive object={scene} />
     </group>
   );
 }
 
 type Props = {
+  skin: CompanionSkin;
   action: YaoyaoAction;
   onPlaying: (action: YaoyaoAction) => void;
 };
 
-export function Yaoyao3D({ action, onPlaying }: Props) {
+export function Yaoyao3D({ skin, action, onPlaying }: Props) {
+  const skinName = COMPANION_SKINS.find((item) => item.id === skin)?.name ?? "陪伴角色";
   return (
     <Canvas
-      camera={{ position: [0, 2.7, 9.4], fov: 36 }}
+      camera={{ position: [0, -1.1, 11], fov: 38 }}
       dpr={[1, 1.75]}
       gl={{ antialias: true, alpha: true }}
-      aria-label="遥遥三维角色动作预览"
+      aria-label={`${skinName}三维角色动作预览`}
     >
       <color attach="background" args={["#e9f2eb"]} />
       <fog attach="fog" args={["#e9f2eb", 10, 18]} />
@@ -98,19 +117,19 @@ export function Yaoyao3D({ action, onPlaying }: Props) {
       <directionalLight position={[4, 8, 6]} intensity={2.4} castShadow />
       <directionalLight position={[-5, 3, 3]} intensity={1.2} color="#d9cff7" />
       <Suspense fallback={null}>
-        <Model requestedAction={action} onPlaying={onPlaying} />
+        <Model key={skin} skin={skin} requestedAction={action} onPlaying={onPlaying} />
         <Environment preset="studio" environmentIntensity={0.35} />
       </Suspense>
-      <ContactShadows position={[0, -2.92, 0]} opacity={0.35} scale={8} blur={2.6} far={4} />
+      <ContactShadows position={[0, -1.32, 0]} opacity={0.35} scale={6} blur={2.6} far={4} />
       <OrbitControls
         makeDefault
         enablePan={false}
         enableZoom
-        minDistance={7}
-        maxDistance={12}
+        minDistance={8}
+        maxDistance={15}
         minPolarAngle={Math.PI / 2.6}
         maxPolarAngle={Math.PI / 1.75}
-        target={[0, 0.2, 0]}
+        target={[0, -1.3, 0]}
       />
     </Canvas>
   );
@@ -120,4 +139,4 @@ export function actionLabel(action: YaoyaoAction): string {
   return ACTION_LABELS[action];
 }
 
-useGLTF.preload("/companion/yaoyao-blockout-v1.glb");
+COMPANION_SKINS.forEach(({ id }) => useGLTF.preload(`/companion/${id}-blockout-v1.glb`));

@@ -1,4 +1,4 @@
-"""Create the first rigged Yaoyao 3D blockout and export it as GLB.
+"""Create a rig-compatible companion skin blockout and export it as GLB.
 
 This is deliberately a pipeline prototype, not the final art model.  It proves
 that independently animated limbs, named actions and the web export all work
@@ -8,6 +8,7 @@ before time is spent on sculpting and hand-painted textures.
 from __future__ import annotations
 
 import math
+import sys
 from pathlib import Path
 
 import bpy
@@ -17,6 +18,58 @@ from mathutils import Vector
 ROOT = Path(__file__).resolve().parents[1]
 EXPORT_DIR = ROOT / "exports"
 EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+
+
+SKINS = {
+    "yaoyao": {
+        "file": "yaoyao-blockout-v1",
+        "hair_style": "soft_short",
+        "head_scale": (0.46, 0.39, 0.56),
+        "skin": (0.96, 0.67, 0.53, 1),
+        "outer": (0.46, 0.67, 0.55, 1),
+        "trim": (0.67, 0.58, 0.79, 1),
+        "inner": (0.91, 0.89, 0.82, 1),
+        "pants": (0.91, 0.89, 0.82, 1),
+        "hair": (0.18, 0.08, 0.045, 1),
+        "shoe": (0.88, 0.87, 0.79, 1),
+    },
+    "xiaohe": {
+        "file": "xiaohe-blockout-v1",
+        "hair_style": "twin_buns",
+        "head_scale": (0.49, 0.41, 0.58),
+        "skin": (0.98, 0.72, 0.60, 1),
+        "outer": (0.93, 0.48, 0.24, 1),
+        "trim": (0.93, 0.84, 0.68, 1),
+        "inner": (0.96, 0.91, 0.80, 1),
+        "pants": (0.48, 0.68, 0.57, 1),
+        "hair": (0.23, 0.10, 0.055, 1),
+        "shoe": (0.87, 0.82, 0.70, 1),
+    },
+    "tuantuan": {
+        "file": "tuantuan-blockout-v1",
+        "hair_style": "fluffy_short",
+        "head_scale": (0.48, 0.40, 0.57),
+        "skin": (0.97, 0.70, 0.57, 1),
+        "outer": (0.30, 0.58, 0.91, 1),
+        "trim": (0.97, 0.72, 0.16, 1),
+        "inner": (0.98, 0.76, 0.18, 1),
+        "pants": (0.88, 0.85, 0.75, 1),
+        "hair": (0.15, 0.075, 0.045, 1),
+        "shoe": (0.82, 0.86, 0.88, 1),
+    },
+    "nuannuan": {
+        "file": "nuannuan-blockout-v1",
+        "hair_style": "soft_bob",
+        "head_scale": (0.47, 0.40, 0.56),
+        "skin": (0.97, 0.69, 0.57, 1),
+        "outer": (0.84, 0.37, 0.42, 1),
+        "trim": (0.95, 0.84, 0.76, 1),
+        "inner": (0.95, 0.91, 0.83, 1),
+        "pants": (0.38, 0.25, 0.39, 1),
+        "hair": (0.28, 0.12, 0.07, 1),
+        "shoe": (0.86, 0.80, 0.72, 1),
+    },
+}
 
 
 def reset_scene() -> None:
@@ -120,51 +173,78 @@ def create_rig() -> bpy.types.Object:
     return rig
 
 
-def create_character(rig: bpy.types.Object) -> list[bpy.types.Object]:
-    skin = material("Skin", (0.96, 0.67, 0.53, 1))
-    sage = material("SageJacket", (0.46, 0.67, 0.55, 1))
-    lavender = material("LavenderTrim", (0.67, 0.58, 0.79, 1))
-    ivory = material("IvoryCloth", (0.91, 0.89, 0.82, 1))
-    hair = material("WarmBrownHair", (0.18, 0.08, 0.045, 1), 0.55)
+def create_character(rig: bpy.types.Object, config: dict) -> list[bpy.types.Object]:
+    skin = material("Skin", config["skin"])
+    outer = material("OuterCloth", config["outer"])
+    trim = material("TrimCloth", config["trim"])
+    inner = material("InnerCloth", config["inner"])
+    pants = material("PantsCloth", config["pants"])
+    hair = material("Hair", config["hair"], 0.55)
     eye = material("WarmBrownEyes", (0.12, 0.045, 0.025, 1), 0.35)
     white = material("EyeWhite", (0.98, 0.98, 0.96, 1))
     mouth = material("Mouth", (0.55, 0.12, 0.12, 1), 0.5)
-    shoe = material("Shoe", (0.88, 0.87, 0.79, 1))
+    shoe = material("Shoe", config["shoe"])
 
     pieces: list[tuple[bpy.types.Object, str]] = []
-    pieces.append((uv_sphere("Head", (0, -0.01, 3.42), (0.46, 0.39, 0.56), skin), "head"))
-    pieces.append((uv_sphere("HairCap", (0, 0.05, 3.72), (0.51, 0.43, 0.36), hair), "head"))
-    for index, (x, y, z, sx, sy, sz) in enumerate((
-        (-0.31, -0.18, 3.78, .23, .18, .2), (-0.08, -0.3, 3.88, .25, .16, .2),
-        (0.18, -0.27, 3.86, .25, .16, .2), (0.34, -0.1, 3.7, .2, .18, .24),
-        (-0.36, 0.02, 3.62, .2, .2, .27), (0.3, 0.08, 3.58, .22, .21, .27),
-    )):
+    pieces.append((uv_sphere("Head", (0, -0.01, 3.42), config["head_scale"], skin), "head"))
+    hair_style = config["hair_style"]
+    if hair_style == "twin_buns":
+        hair_parts = (
+            (0, .06, 3.72, .50, .43, .34),
+            (-.42, .02, 3.93, .23, .22, .24), (.42, .02, 3.93, .23, .22, .24),
+            (-.28, -.25, 3.82, .22, .15, .19), (0, -.31, 3.88, .23, .14, .18),
+            (.28, -.25, 3.82, .22, .15, .19), (-.42, -.02, 3.60, .13, .14, .30),
+            (.42, -.02, 3.60, .13, .14, .30),
+        )
+    elif hair_style == "soft_bob":
+        hair_parts = (
+            (0, .08, 3.68, .53, .45, .42),
+            (-.40, .02, 3.52, .20, .23, .34), (.40, .02, 3.52, .20, .23, .34),
+            (-.26, -.27, 3.80, .25, .15, .20), (.02, -.31, 3.87, .26, .14, .19),
+            (.29, -.25, 3.78, .23, .15, .21), (0, .25, 3.48, .43, .22, .28),
+        )
+    elif hair_style == "fluffy_short":
+        hair_parts = (
+            (0, .06, 3.72, .51, .43, .36),
+            (-.34, -.18, 3.82, .25, .18, .23), (-.10, -.30, 3.91, .26, .16, .21),
+            (.17, -.28, 3.89, .27, .16, .22), (.37, -.11, 3.73, .21, .19, .26),
+            (-.39, .05, 3.66, .21, .21, .29), (.31, .09, 3.61, .23, .22, .28),
+            (0, .26, 3.72, .35, .24, .28),
+        )
+    else:
+        hair_parts = (
+            (0, .05, 3.72, .51, .43, .36),
+            (-0.31, -0.18, 3.78, .23, .18, .2), (-0.08, -0.3, 3.88, .25, .16, .2),
+            (0.18, -0.27, 3.86, .25, .16, .2), (0.34, -0.1, 3.7, .2, .18, .24),
+            (-0.36, 0.02, 3.62, .2, .2, .27), (0.3, 0.08, 3.58, .22, .21, .27),
+        )
+    for index, (x, y, z, sx, sy, sz) in enumerate(hair_parts):
         pieces.append((uv_sphere(f"HairLock{index + 1:02d}", (x, y, z), (sx, sy, sz), hair, 20, 12), "head"))
     for side, sign in (("L", 1), ("R", -1)):
         pieces.append((uv_sphere(f"EyeWhite.{side}", (0.17 * sign, -0.365, 3.5), (.13, .045, .09), white, 20, 12), "head"))
         pieces.append((uv_sphere(f"Eye.{side}", (0.17 * sign, -0.405, 3.5), (.065, .025, .065), eye, 20, 12), "head"))
     pieces.append((rounded_cube("Mouth", (0, -0.405, 3.27), (.12, .018, .025), mouth, .02), "head"))
 
-    pieces.append((rounded_cube("JacketTorso", (0, 0, 2.25), (.52, .3, .68), sage, .16), "chest"))
-    pieces.append((rounded_cube("InnerShirt", (0, -0.31, 2.35), (.24, .035, .57), ivory, .05), "chest"))
-    lapel_l = rounded_cube("Lapel.L", (.2, -.35, 2.47), (.115, .035, .52), lavender, .04)
+    pieces.append((rounded_cube("JacketTorso", (0, 0, 2.25), (.52, .3, .68), outer, .16), "chest"))
+    pieces.append((rounded_cube("InnerShirt", (0, -0.31, 2.35), (.24, .035, .57), inner, .05), "chest"))
+    lapel_l = rounded_cube("Lapel.L", (.2, -.35, 2.47), (.115, .035, .52), trim, .04)
     lapel_l.rotation_euler[1] = math.radians(-9)
     pieces.append((lapel_l, "chest"))
-    lapel_r = rounded_cube("Lapel.R", (-.2, -.35, 2.47), (.115, .035, .52), lavender, .04)
+    lapel_r = rounded_cube("Lapel.R", (-.2, -.35, 2.47), (.115, .035, .52), trim, .04)
     lapel_r.rotation_euler[1] = math.radians(9)
     pieces.append((lapel_r, "chest"))
     for z in (2.32, 2.05):
-        pieces.append((rounded_cube(f"Closure{z}", (0, -.38, z), (.13, .025, .045), sage, .025), "chest"))
+        pieces.append((rounded_cube(f"Closure{z}", (0, -.38, z), (.13, .025, .045), outer, .025), "chest"))
 
     for side, sign in (("L", 1), ("R", -1)):
         upper_start, upper_end = (.42 * sign, 0, 2.7), (.98 * sign, 0, 2.36)
         fore_start, fore_end = (.98 * sign, 0, 2.36), (1.43 * sign, 0, 2.08)
-        pieces.append((cylinder_between(f"UpperArm.{side}", upper_start, upper_end, .19, sage), f"upper_arm.{side}"))
-        pieces.append((cylinder_between(f"Forearm.{side}", fore_start, fore_end, .17, sage), f"forearm.{side}"))
-        pieces.append((cylinder_between(f"Cuff.{side}", (1.3 * sign, 0, 2.16), (1.47 * sign, 0, 2.05), .195, lavender), f"forearm.{side}"))
+        pieces.append((cylinder_between(f"UpperArm.{side}", upper_start, upper_end, .19, outer), f"upper_arm.{side}"))
+        pieces.append((cylinder_between(f"Forearm.{side}", fore_start, fore_end, .17, outer), f"forearm.{side}"))
+        pieces.append((cylinder_between(f"Cuff.{side}", (1.3 * sign, 0, 2.16), (1.47 * sign, 0, 2.05), .195, trim), f"forearm.{side}"))
         pieces.append((uv_sphere(f"Hand.{side}", (1.6 * sign, -.01, 1.99), (.18, .11, .13), skin, 24, 14), f"hand.{side}"))
-        pieces.append((cylinder_between(f"Thigh.{side}", (.27 * sign, 0, 1.69), (.29 * sign, 0, 1.0), .255, ivory), f"thigh.{side}"))
-        pieces.append((cylinder_between(f"Shin.{side}", (.29 * sign, 0, 1.01), (.3 * sign, 0, .32), .235, ivory), f"shin.{side}"))
+        pieces.append((cylinder_between(f"Thigh.{side}", (.27 * sign, 0, 1.69), (.29 * sign, 0, 1.0), .255, pants), f"thigh.{side}"))
+        pieces.append((cylinder_between(f"Shin.{side}", (.29 * sign, 0, 1.01), (.3 * sign, 0, .32), .235, pants), f"shin.{side}"))
         pieces.append((rounded_cube(f"Shoe.{side}", (.3 * sign, -.17, .17), (.26, .36, .14), shoe, .1), f"foot.{side}"))
 
     objects = []
@@ -254,7 +334,7 @@ def look_at(obj: bpy.types.Object, target) -> None:
     obj.rotation_euler = (Vector(target) - obj.location).to_track_quat("-Z", "Y").to_euler()
 
 
-def setup_preview(rig: bpy.types.Object, action_item: bpy.types.Action) -> None:
+def setup_preview(rig: bpy.types.Object, action_item: bpy.types.Action, file_stem: str) -> None:
     world = bpy.context.scene.world or bpy.data.worlds.new("World")
     bpy.context.scene.world = world
     world.color = (0.055, 0.055, 0.055)
@@ -288,18 +368,19 @@ def setup_preview(rig: bpy.types.Object, action_item: bpy.types.Action) -> None:
     scene.render.film_transparent = False
     rig.animation_data.action = action_item
     scene.frame_set(30)
-    scene.render.filepath = str(EXPORT_DIR / "yaoyao-blockout-preview-v1.png")
+    preview_stem = file_stem.replace("-blockout-v1", "-blockout-preview-v1")
+    scene.render.filepath = str(EXPORT_DIR / f"{preview_stem}.png")
     bpy.ops.render.render(write_still=True)
 
 
-def export_glb(rig: bpy.types.Object, character_objects: list[bpy.types.Object]) -> None:
+def export_glb(rig: bpy.types.Object, character_objects: list[bpy.types.Object], file_stem: str) -> None:
     bpy.ops.object.select_all(action="DESELECT")
     rig.select_set(True)
     for obj in character_objects:
         obj.select_set(True)
     bpy.context.view_layer.objects.active = rig
     bpy.ops.export_scene.gltf(
-        filepath=str(EXPORT_DIR / "yaoyao-blockout-v1.glb"),
+        filepath=str(EXPORT_DIR / f"{file_stem}.glb"),
         export_format="GLB",
         use_selection=True,
         export_animations=True,
@@ -310,17 +391,25 @@ def export_glb(rig: bpy.types.Object, character_objects: list[bpy.types.Object])
 
 
 def main() -> None:
+    args = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
+    skin_id = args[0] if args else "yaoyao"
+    if skin_id not in SKINS:
+        raise ValueError(f"Unknown skin '{skin_id}'. Choose one of: {', '.join(SKINS)}")
+    config = SKINS[skin_id]
+    file_stem = config["file"]
     reset_scene()
     rig = create_rig()
-    character = create_character(rig)
+    character = create_character(rig, config)
     actions = create_actions(rig)
-    export_glb(rig, character)
-    setup_preview(rig, actions["Idle_Wave"])
+    export_glb(rig, character, file_stem)
+    setup_preview(rig, actions["Idle_Wave"], file_stem)
     rig.animation_data.action = actions["Idle_Base"]
     bpy.context.scene.frame_set(1)
-    bpy.ops.wm.save_as_mainfile(filepath=str(ROOT / "yaoyao-blockout-v1.blend"))
-    print(f"Created {ROOT / 'yaoyao-blockout-v1.blend'}")
-    print(f"Created {EXPORT_DIR / 'yaoyao-blockout-v1.glb'}")
+    blend_path = ROOT / f"{file_stem}.blend"
+    glb_path = EXPORT_DIR / f"{file_stem}.glb"
+    bpy.ops.wm.save_as_mainfile(filepath=str(blend_path))
+    print(f"Created {blend_path}")
+    print(f"Created {glb_path}")
 
 
 if __name__ == "__main__":

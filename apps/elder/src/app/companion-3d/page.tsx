@@ -2,7 +2,14 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { actionLabel, Yaoyao3D, YAOYAO_ACTIONS, type YaoyaoAction } from "@/components/Yaoyao3D";
+import {
+  actionLabel,
+  COMPANION_SKINS,
+  Yaoyao3D,
+  YAOYAO_ACTIONS,
+  type CompanionSkin,
+  type YaoyaoAction
+} from "@/components/Yaoyao3D";
 import styles from "./page.module.css";
 
 const AUTO_ACTIONS: YaoyaoAction[] = ["Idle_Wave", "Nod", "Think", "Cheer"];
@@ -11,6 +18,8 @@ export default function Companion3DPage() {
   const [requestedAction, setRequestedAction] = useState<YaoyaoAction>("Idle_Base");
   const [playingAction, setPlayingAction] = useState<YaoyaoAction>("Idle_Base");
   const [autoMotion, setAutoMotion] = useState(true);
+  const [selectedSkin, setSelectedSkin] = useState<CompanionSkin>("yaoyao");
+  const selectedSkinInfo = COMPANION_SKINS.find((skin) => skin.id === selectedSkin) ?? COMPANION_SKINS[0];
 
   const requestAction = useCallback((action: YaoyaoAction) => {
     setRequestedAction((current) => current === action ? "Idle_Base" : action);
@@ -26,28 +35,51 @@ export default function Companion3DPage() {
     return () => window.clearInterval(timer);
   }, [autoMotion, requestAction]);
 
+  const chooseSkin = useCallback((skin: CompanionSkin) => {
+    setSelectedSkin(skin);
+    setRequestedAction("Idle_Base");
+    setPlayingAction("Idle_Base");
+  }, []);
+
   return (
     <main className={styles.shell}>
       <header className={styles.header}>
         <div>
-          <p>遥遥 · Blender 动作样机</p>
-          <h1>她不再只是一张会平移的图片</h1>
-          <span>手臂、前臂、手掌、头部、身体和腿部已经接入独立骨骼动作。</span>
+          <p>心迹银龄 · Blender 多皮肤样机</p>
+          <h1>同一套骨骼，陪伴者可以自由换装</h1>
+          <span>当前 4 个角色共用肩、肘、腕、髋、膝等关节和全部 9 个动作。</span>
         </div>
         <Link href="/">返回老人端</Link>
       </header>
 
       <section className={styles.workspace} aria-label="三维角色动作验证区">
         <div className={styles.stage}>
-          <Yaoyao3D action={requestedAction} onPlaying={setPlayingAction} />
+          <Yaoyao3D skin={selectedSkin} action={requestedAction} onPlaying={setPlayingAction} />
           <div className={styles.status} aria-live="polite">
-            <span>正在执行</span>
+            <span>{selectedSkinInfo.name} · 正在执行</span>
             <strong>{actionLabel(playingAction)}</strong>
           </div>
           <p className={styles.hint}>拖动可转动视角 · 滚轮或双指可缩放</p>
         </div>
 
         <aside className={styles.controls}>
+          <section className={styles.skinPanel} aria-labelledby="skin-title">
+            <div><p>角色皮肤</p><h2 id="skin-title">选一位陪伴者</h2></div>
+            <div className={styles.skinGrid}>
+              {COMPANION_SKINS.map((skin) => (
+                <button
+                  className={selectedSkin === skin.id ? styles.skinActive : ""}
+                  type="button"
+                  aria-pressed={selectedSkin === skin.id}
+                  key={skin.id}
+                  onClick={() => chooseSkin(skin.id)}
+                >
+                  <i style={{ backgroundColor: skin.swatch }} aria-hidden="true" />
+                  <span><strong>{skin.name}</strong><small>{skin.description}</small></span>
+                </button>
+              ))}
+            </div>
+          </section>
           <div className={styles.controlHeading}>
             <div><p>动作控制台</p><h2>逐个检查骨骼动作</h2></div>
             <label><input type="checkbox" checked={autoMotion} onChange={(event) => setAutoMotion(event.target.checked)} /> 自动待机</label>
