@@ -532,6 +532,7 @@ export default function ElderCompanionPage() {
   const dateText = now ? new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "long", day: "numeric", weekday: "long" }).format(now) : "正在读取日期";
   const dayPeriod = !now ? "" : now.getHours() < 6 ? "凌晨" : now.getHours() < 12 ? "上午" : now.getHours() < 18 ? "下午" : "晚上";
   const latestMessage = messages[messages.length - 1];
+  const latestAssistantMessage = [...messages].reverse().find((message) => message.role === "assistant");
   const companionVisualState: CompanionVisualState = emergencyState !== "idle"
     ? "alert"
     : status === "暂时离线" || status === "连接不稳"
@@ -577,72 +578,90 @@ export default function ElderCompanionPage() {
       <header className="topbar">
         <button className="brand" type="button" onClick={() => setActivePanel("home")}>{selectedPersona.name}</button>
         <p className="welcome">{elderName}，{dayPeriod ? `${dayPeriod}好` : "您好"}</p>
-        <div className="service-state"><span>{status}</span>{(status === "暂时离线" || status === "连接不稳") && <button type="button" onClick={() => { setStatus("正在连接"); setConnectionAttempt((value) => value + 1); }}>重新连接</button>}<small>{consentMode === "care" ? "已同意生成关怀摘要" : "本次对话不保存"}</small><button type="button" onClick={() => { void resetConversationConsent(); }}>停止保存与分析 / 重新选择</button><Link href="/account/security">修改密码</Link><button type="button" onClick={logout}>退出</button></div>
+        <div className="service-state">
+          <span>{status}</span>
+          <small>{consentMode === "care" ? "关怀摘要已开启" : "本次对话不保存"}</small>
+          {(status === "暂时离线" || status === "连接不稳") && <button type="button" onClick={() => { setStatus("正在连接"); setConnectionAttempt((value) => value + 1); }}>重新连接</button>}
+          <details className="session-menu">
+            <summary>账户与隐私</summary>
+            <div>
+              <button type="button" onClick={() => { void resetConversationConsent(); }}>停止保存与分析 / 重新选择</button>
+              <Link href="/account/security">修改密码</Link>
+              <button type="button" onClick={logout}>退出账号</button>
+            </div>
+          </details>
+        </div>
       </header>
 
       {activePanel === "home" && (
-        <section className="feature-grid" aria-label="主要功能">
-          <button className="feature-tile feature-chat" type="button" onClick={() => setActivePanel("chat")}>
-            <span className="feature-chat-copy">
-              <strong>陪我聊聊</strong>
-              <span>点一下，说说心里话</span>
-            </span>
-            <CompanionAvatar name={selectedPersona.name} state={companionVisualState} compact />
-          </button>
+        <section className="companion-lobby" aria-label="遥遥陪伴大厅">
+          <div className={`lobby-stage lobby-${companionVisualState}`}>
+            <div className="lobby-light lobby-light-one" aria-hidden="true" />
+            <div className="lobby-light lobby-light-two" aria-hidden="true" />
 
-          <button className="feature-tile feature-time" type="button" onClick={() => setActivePanel("time")}>
-            <strong className="tile-clock">{now ? displayTime(now) : "--:--"}</strong>
-            <span>现在时间</span>
-          </button>
-
-          <button className="feature-tile feature-weather" type="button" onClick={() => setActivePanel("weather")}>
-            <strong>{weather ? `${weather.temperature}℃` : "今日天气"}</strong>
-            <span>{weather ? `${weather.description} · ${weather.location}` : "点一下查看天气"}</span>
-          </button>
-
-          <button className="feature-tile feature-news" type="button" onClick={() => setActivePanel("news")}>
-            <strong>最新资讯</strong>
-            <span>{news[0]?.title ?? "点一下听听今天的消息"}</span>
-          </button>
-
-          <button className="feature-tile feature-checkin" type="button" onClick={() => setActivePanel("checkin")}>
-            <strong>每日自述</strong>
-            <span>{checkIn ? "今天已记录 · 点一下可修改" : "用三个小问题告诉我今天的状态"}</span>
-          </button>
-
-          <Link className="feature-tile feature-screening" href="/screening">
-            <strong>关怀小测</strong>
-            <span>本人愿意时，完成有国家标准依据的情绪关怀筛查</span>
-          </Link>
-
-          <section className="persona-home-card" aria-labelledby="persona-home-title">
-            <div className="persona-home-heading">
-              <button className="companion-launch" type="button" onClick={() => setActivePanel("chat")} aria-label={`和${selectedPersona.name}聊聊`}>
-                <CompanionAvatar name={selectedPersona.name} state={companionVisualState} />
+            <div className="lobby-glance">
+              <span>{dateText}</span>
+              <strong>{now ? displayTime(now) : "--:--"}</strong>
+              <button type="button" onClick={() => setActivePanel("weather")}>
+                {weather ? `${weather.temperature}℃ · ${weather.description}` : "查看今日天气"}
               </button>
+            </div>
+
+            <button
+              className={`lobby-character lobby-character-${companionVisualState}`}
+              type="button"
+              onClick={() => setActivePanel("chat")}
+              aria-label={`${selectedPersona.name}，${COMPANION_STATE_LABELS[companionVisualState]}，点击查看对话记录`}
+            >
+              <span className="lobby-character-ring" aria-hidden="true" />
+              <Image src="/companion/yaoyao-stage-v2.png" width={1024} height={1536} sizes="(max-width: 760px) 54vw, 380px" alt="" priority />
+              <span className="lobby-character-name"><strong>{selectedPersona.name}</strong><small>{COMPANION_STATE_LABELS[companionVisualState]}</small></span>
+            </button>
+
+            <section className="lobby-speech" aria-live="polite" aria-atomic="true">
+              <span>{busy ? progress : `${selectedPersona.name}想对您说`}</span>
+              <p>{busy && latestMessage?.role !== "assistant" ? "我听到了，正在认真想怎么回答您。" : latestAssistantMessage?.content ?? "我在呢，您今天想聊点什么？"}</p>
+              <button type="button" onClick={() => setActivePanel("chat")}>查看对话记录</button>
+            </section>
+
+            <nav className="lobby-actions" aria-label="常用功能">
+              <button type="button" onClick={() => setActivePanel("checkin")}><span>每日自述</span><small>记录今天的状态</small></button>
+              <Link href="/screening"><span>关怀小测</span><small>本人愿意时再做</small></Link>
+              <button type="button" onClick={() => setActivePanel("news")}><span>听听资讯</span><small>看看今天的新鲜事</small></button>
+              <button type="button" onClick={() => setActivePanel("time")}><span>时间日期</span><small>{now ? displayTime(now) : "正在读取"}</small></button>
+              <button type="button" aria-expanded={personaManagerOpen} onClick={() => setPersonaManagerOpen((open) => !open)}><span>陪伴者</span><small>选择不同说话风格</small></button>
+            </nav>
+
+            <button className="lobby-emergency" type="button" disabled={emergencyState === "submitting" || emergencyState === "sent"} onClick={() => setEmergencyState("confirming")}>
+              {emergencyState === "sent" ? "求助已发出" : "紧急呼救"}
+            </button>
+
+            <form className="lobby-composer" onSubmit={sendMessage}>
+              <label htmlFor="lobby-message">现在想和{selectedPersona.name}说什么？</label>
               <div>
-                <p>当前陪伴者</p>
-                <h2 id="persona-home-title">{selectedPersona.name}</h2>
-                <span>{selectedPersona.role}</span>
+                <input id="lobby-message" value={input} onChange={(event) => setInput(event.target.value)} maxLength={8000} placeholder="点这里输入一句话" disabled={busy} />
+                <button type="submit" disabled={busy || status !== "可以使用"}>{busy ? "正在听" : "说给遥遥听"}</button>
               </div>
-              <button type="button" aria-expanded={personaManagerOpen} onClick={() => setPersonaManagerOpen((open) => !open)}>
-                {personaManagerOpen ? "收起管理" : "添加或管理陪伴者"}
-              </button>
-            </div>
-            <div className="persona-quick-list" aria-label="在首页选择陪伴者">
-              {personas.map((persona) => (
-                <button
-                  className={persona.id === selectedPersona.id ? "selected" : ""}
-                  type="button"
-                  key={persona.id}
-                  onClick={() => restartWithPersona(persona.id)}
-                >
-                  <strong>{persona.name}</strong>
-                  <span>{persona.style}</span>
-                </button>
-              ))}
-            </div>
-            {personaManagerOpen && (
+            </form>
+          </div>
+
+          {personaManagerOpen && (
+            <section className="persona-home-card lobby-persona-manager" aria-labelledby="persona-home-title">
+              <div className="persona-home-heading">
+                <div>
+                  <p>当前陪伴者</p>
+                  <h2 id="persona-home-title">{selectedPersona.name}</h2>
+                  <span>{selectedPersona.role}</span>
+                </div>
+                <button type="button" onClick={() => setPersonaManagerOpen(false)}>收起管理</button>
+              </div>
+              <div className="persona-quick-list" aria-label="选择陪伴者">
+                {personas.map((persona) => (
+                  <button className={persona.id === selectedPersona.id ? "selected" : ""} type="button" key={persona.id} onClick={() => restartWithPersona(persona.id)}>
+                    <strong>{persona.name}</strong><span>{persona.style}</span>
+                  </button>
+                ))}
+              </div>
               <div className="persona-manager">
                 <section className="persona-list" aria-label="已有人格">
                   {personas.map((persona) => (
@@ -666,13 +685,8 @@ export default function ElderCompanionPage() {
                   <small>资料只保存在当前浏览器和当前老人账号下；每位陪伴者使用独立会话，避免记忆混在一起。</small>
                 </form>
               </div>
-            )}
-          </section>
-
-          <button className="feature-tile feature-emergency" type="button" disabled={emergencyState === "submitting" || emergencyState === "sent"} onClick={() => setEmergencyState("confirming")}>
-            <strong>{emergencyState === "sent" ? "求助已发出" : "紧急呼救"}</strong>
-            <span>{emergencyState === "sent" ? "家属和工作人员正在收到提醒" : "身体不舒服、跌倒或感到危险时点这里"}</span>
-          </button>
+            </section>
+          )}
         </section>
       )}
 
