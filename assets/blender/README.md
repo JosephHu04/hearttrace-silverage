@@ -27,6 +27,13 @@ blender --background --python assets/blender/scripts/create_yaoyao_blockout.py -
 
 四套皮肤使用完全相同的 18 根骨骼名称、关节位置和 Action 合同；网页只替换 GLB 模型，不重写动作逻辑。
 
+## 正式骨骼候选管线
+
+- `scripts/inspect_rigged_base.py`：在引入第三方角色前自动渲染并输出网格、骨骼和尺寸审查结果。
+- `scripts/prepare_xiaohe_rig_base.py`：将合法取得的身体、双丸子头和动作库合并到同一套 65 根 Humanoid 骨骼，并通过 NLA 多轨导出五段动作。
+- `CANDIDATE_AUDIT.md`：记录来源、许可、通过项、淘汰项和正式建模待办。
+- `candidates/`：本地可重复生成的大型工程候选目录，已排除在 Git 历史之外。
+
 ## 动作合同
 
 | Blender Action | 页面状态 |

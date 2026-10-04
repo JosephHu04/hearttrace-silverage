@@ -32,3 +32,9 @@ event-clips/
 .DS_Store
 .idea/
 .vscode/
+
+# Local Blender candidates (large, reproducible, not approved for product use)
+assets/blender/candidates/*.blend
+assets/blender/candidates/*.blend1
+assets/blender/candidates/*.glb
+assets/blender/candidates/*.png

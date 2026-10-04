@@ -108,9 +108,9 @@ export default function Companion3DPage() {
       <section className={styles.pipelineSection} aria-label="角色制作进度">
         <div className={styles.pipelineTitle}><span>01</span><div><strong>视觉与比例</strong><small>已确定</small></div></div>
         <i aria-hidden="true" />
-        <div className={styles.pipelineTitle}><span>02</span><div><strong>正式建模与蒙皮</strong><small>下一阶段</small></div></div>
+        <div className={styles.pipelineTitle}><span>02</span><div><strong>骨骼底座与动作</strong><small>已验证</small></div></div>
         <i aria-hidden="true" />
-        <div className={styles.pipelineTitle}><span>03</span><div><strong>表情、口型与动作</strong><small>接入验收</small></div></div>
+        <div className={styles.pipelineTitle}><span>03</span><div><strong>正式建模、表情与口型</strong><small>进行中</small></div></div>
       </section>
 
       <section className={styles.lineupSection} id="character-lineup">
