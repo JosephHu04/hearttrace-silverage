@@ -12,7 +12,7 @@ import {
 } from "@/components/Yaoyao3D";
 import styles from "../page.module.css";
 
-const AUTO_ACTIONS: YaoyaoAction[] = ["Idle_Wave", "Nod", "Think", "Cheer"];
+const AUTO_ACTIONS: YaoyaoAction[] = ["Idle_Look", "Idle_Shift", "Idle_Wave", "Nod"];
 
 export default function CompanionRigDebugPage() {
   const [requestedAction, setRequestedAction] = useState<YaoyaoAction>("Idle_Base");
@@ -28,11 +28,19 @@ export default function CompanionRigDebugPage() {
 
   useEffect(() => {
     if (!autoMotion) return;
-    const timer = window.setInterval(() => {
-      const next = AUTO_ACTIONS[Math.floor(Math.random() * AUTO_ACTIONS.length)];
-      requestAction(next);
-    }, 9000);
-    return () => window.clearInterval(timer);
+    let timer: number | undefined;
+    const queueAmbientMotion = () => {
+      const delay = 6000 + Math.round(Math.random() * 4000);
+      timer = window.setTimeout(() => {
+        const next = AUTO_ACTIONS[Math.floor(Math.random() * AUTO_ACTIONS.length)];
+        requestAction(next);
+        queueAmbientMotion();
+      }, delay);
+    };
+    queueAmbientMotion();
+    return () => {
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
   }, [autoMotion, requestAction]);
 
   const chooseSkin = useCallback((skin: CompanionSkin) => {

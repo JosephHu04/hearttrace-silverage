@@ -7,6 +7,8 @@ import { Group, LoopOnce, LoopRepeat } from "three";
 
 export const YAOYAO_ACTIONS = [
   "Idle_Base",
+  "Idle_Look",
+  "Idle_Shift",
   "Idle_Wave",
   "Listen",
   "Think",
@@ -29,7 +31,9 @@ export const COMPANION_SKINS = [
 export type CompanionSkin = (typeof COMPANION_SKINS)[number]["id"];
 
 const ACTION_LABELS: Record<YaoyaoAction, string> = {
-  Idle_Base: "自然待机",
+  Idle_Base: "自然呼吸",
+  Idle_Look: "环顾观察",
+  Idle_Shift: "重心换腿",
   Idle_Wave: "招手问候",
   Listen: "认真倾听",
   Think: "思考回应",
