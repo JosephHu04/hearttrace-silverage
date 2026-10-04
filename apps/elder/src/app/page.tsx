@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
+import { playPcmS16le, startVoiceCapture, stopVoiceCapture, stopVoiceCaptureWithoutSaving, type VoiceCapture } from "@/lib/voice-audio";
 
 // All three clients configure the API origin. Accept the older /api suffix too.
 const API_ORIGIN = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000")
@@ -15,6 +16,8 @@ type ActivePanel = "home" | "chat" | "time" | "weather" | "news" | "checkin";
 type ConsentMode = "private" | "care";
 type EmergencyState = "idle" | "confirming" | "submitting" | "sent" | "error";
 type CompanionVisualState = "idle" | "listening" | "thinking" | "speaking" | "alert" | "offline";
+type VoiceState = "idle" | "recording" | "transcribing";
+type VoiceHealth = { asr: boolean; tts: boolean; checked: boolean };
 type ChatMessage = { id: string; role: "user" | "assistant"; content: string; at: Date | null };
 type Weather = {
   location: string;
@@ -105,6 +108,11 @@ export default function ElderCompanionPage() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState("遥遥正在回复");
+  const [voiceState, setVoiceState] = useState<VoiceState>("idle");
+  const [voiceHealth, setVoiceHealth] = useState<VoiceHealth>({ asr: false, tts: false, checked: false });
+  const [voiceNotice, setVoiceNotice] = useState("正在检查语音服务");
+  const [ttsEnabled, setTtsEnabled] = useState(true);
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const [personas, setPersonas] = useState<Persona[]>([DEFAULT_PERSONA]);
   const [personasLoaded, setPersonasLoaded] = useState(false);
   const [selectedPersonaId, setSelectedPersonaId] = useState(DEFAULT_PERSONA.id);
@@ -127,9 +135,19 @@ export default function ElderCompanionPage() {
   const socketRef = useRef<WebSocket | null>(null);
   const tokenRef = useRef("");
   const assistantIdRef = useRef<string | null>(null);
+  const assistantTextRef = useRef("");
   const pendingMessageRef = useRef("");
   const hasSentMessageRef = useRef(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const voiceCaptureRef = useRef<VoiceCapture | null>(null);
+  const voiceTimerRef = useRef<number | null>(null);
+  const playbackContextRef = useRef<AudioContext | null>(null);
+  const playbackSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const voiceHealthRef = useRef(voiceHealth);
+  const ttsEnabledRef = useRef(ttsEnabled);
+
+  useEffect(() => { voiceHealthRef.current = voiceHealth; }, [voiceHealth]);
+  useEffect(() => { ttsEnabledRef.current = ttsEnabled; }, [ttsEnabled]);
 
   useEffect(() => {
     try {
@@ -144,6 +162,115 @@ export default function ElderCompanionPage() {
       router.replace("/account");
     }
   }, [router]);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    let cancelled = false;
+    async function checkVoiceServices() {
+      try {
+        const response = await fetch(`${API_BASE}/speech/health`, { headers: { Authorization: `Bearer ${tokenRef.current}` } });
+        if (!response.ok) throw new Error("语音服务检查失败");
+        const result = await response.json() as { asr?: boolean; tts?: boolean };
+        if (cancelled) return;
+        const health = { asr: result.asr === true, tts: result.tts === true, checked: true };
+        setVoiceHealth(health);
+        setVoiceNotice(health.asr && health.tts ? "语音识别和回复播报已就绪" : health.asr ? "可以语音输入，回复播报暂未连接" : health.tts ? "可以播放回复，语音输入暂未连接" : "语音服务暂未启动，仍可打字聊天");
+      } catch {
+        if (!cancelled) {
+          setVoiceHealth({ asr: false, tts: false, checked: true });
+          setVoiceNotice("语音服务暂未启动，仍可打字聊天");
+        }
+      }
+    }
+    void checkVoiceServices();
+    return () => { cancelled = true; };
+  }, [accessToken]);
+
+  useEffect(() => () => {
+    if (voiceTimerRef.current !== null) window.clearTimeout(voiceTimerRef.current);
+    if (voiceCaptureRef.current) stopVoiceCaptureWithoutSaving(voiceCaptureRef.current);
+    playbackSourceRef.current?.stop();
+    void playbackContextRef.current?.close();
+  }, []);
+
+  const prepareSpeechPlayback = useCallback(() => {
+    if (!voiceHealthRef.current.tts || !ttsEnabledRef.current) return;
+    if (!playbackContextRef.current || playbackContextRef.current.state === "closed") {
+      playbackContextRef.current = new AudioContext({ latencyHint: "interactive" });
+    }
+    if (playbackContextRef.current.state === "suspended") void playbackContextRef.current.resume();
+  }, []);
+
+  const speakAssistantReply = useCallback(async (text: string) => {
+    const clean = text.replace(/\[[^\]]+\]/g, "").trim().slice(0, 800);
+    if (!clean || !voiceHealthRef.current.tts || !ttsEnabledRef.current) return;
+    try {
+      prepareSpeechPlayback();
+      const response = await fetch(`${API_BASE}/speech/synthesize`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${tokenRef.current}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ text: clean })
+      });
+      if (!response.ok) throw new Error("回复播报暂时失败");
+      const context = playbackContextRef.current;
+      if (!context) return;
+      const sampleRate = Number(response.headers.get("X-Audio-Sample-Rate")) || 44100;
+      setIsSpeaking(true);
+      await playPcmS16le(context, await response.arrayBuffer(), sampleRate, (source) => { playbackSourceRef.current = source; });
+    } catch {
+      setVoiceNotice("这次回复没能播出，文字已正常显示");
+    } finally {
+      setIsSpeaking(false);
+    }
+  }, [prepareSpeechPlayback]);
+
+  async function stopAndTranscribe() {
+    const capture = voiceCaptureRef.current;
+    if (!capture) return;
+    voiceCaptureRef.current = null;
+    if (voiceTimerRef.current !== null) window.clearTimeout(voiceTimerRef.current);
+    voiceTimerRef.current = null;
+    setVoiceState("transcribing");
+    setVoiceNotice("正在识别您刚才说的话…");
+    try {
+      const wav = await stopVoiceCapture(capture);
+      if (wav.size <= 44) throw new Error("没有录到声音");
+      const response = await fetch(`${API_BASE}/speech/transcribe`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${tokenRef.current}`, "Content-Type": "audio/wav" },
+        body: wav
+      });
+      const result = await response.json() as { text?: string; detail?: string };
+      if (!response.ok) throw new Error(result.detail ?? "语音识别失败");
+      const transcript = result.text?.trim() ?? "";
+      if (!transcript) throw new Error("这次没有听清，请再说一次");
+      setInput((current) => current.trim() ? `${current.trim()} ${transcript}` : transcript);
+      setVoiceNotice(`已识别：${transcript}`);
+    } catch (error) {
+      setVoiceNotice(error instanceof Error ? error.message : "语音识别失败，请再试一次");
+    } finally {
+      setVoiceState("idle");
+    }
+  }
+
+  async function toggleVoiceCapture() {
+    if (voiceState === "recording") {
+      await stopAndTranscribe();
+      return;
+    }
+    if (voiceState !== "idle" || busy || !voiceHealth.asr) return;
+    try {
+      prepareSpeechPlayback();
+      playbackSourceRef.current?.stop();
+      setIsSpeaking(false);
+      voiceCaptureRef.current = await startVoiceCapture();
+      setVoiceState("recording");
+      setVoiceNotice("正在听，说完后再按一下");
+      voiceTimerRef.current = window.setTimeout(() => { void stopAndTranscribe(); }, 45_000);
+    } catch (error) {
+      setVoiceNotice(error instanceof Error ? error.message : "无法使用麦克风，请检查浏览器权限");
+    }
+  }
 
   useEffect(() => {
     if (!elderId) return;
@@ -167,6 +294,11 @@ export default function ElderCompanionPage() {
 
   function logout() {
     socketRef.current?.close();
+    if (voiceCaptureRef.current) {
+      stopVoiceCaptureWithoutSaving(voiceCaptureRef.current);
+      voiceCaptureRef.current = null;
+    }
+    playbackSourceRef.current?.stop();
     sessionStorage.removeItem("hearttrace.elder.session");
     setAccessToken("");
     tokenRef.current = "";
@@ -359,6 +491,7 @@ export default function ElderCompanionPage() {
             if (update.kind === "weather") setWeather(update.data as Weather);
             if (update.kind === "news") setNews((update.data as { items: NewsItem[] }).items ?? []);
           } else if (update.type === "delta" && update.text) {
+            assistantTextRef.current += update.text;
             let assistantId = assistantIdRef.current;
             if (!assistantId) {
               assistantId = crypto.randomUUID();
@@ -368,12 +501,16 @@ export default function ElderCompanionPage() {
               setMessages((current) => current.map((item) => item.id === assistantId ? { ...item, content: item.content + update.text } : item));
             }
           } else if (update.type === "done") {
+            const spokenReply = assistantTextRef.current;
+            assistantTextRef.current = "";
             assistantIdRef.current = null;
             setBusy(false);
             setProgress(`${selectedPersona.name}正在回复`);
+            if (spokenReply) void speakAssistantReply(spokenReply);
           } else if (update.type === "error") {
             setMessages((current) => [...current, { id: crypto.randomUUID(), role: "assistant", content: update.message ?? "刚才没有接住，请再说一次。", at: new Date() }]);
             assistantIdRef.current = null;
+            assistantTextRef.current = "";
             setBusy(false);
           }
         };
@@ -387,6 +524,7 @@ export default function ElderCompanionPage() {
             setStatus("暂时离线");
             setBusy(false);
             assistantIdRef.current = null;
+            assistantTextRef.current = "";
           }
         };
         socket.onerror = () => setStatus("连接不稳");
@@ -400,13 +538,14 @@ export default function ElderCompanionPage() {
       cancelled = true;
       socket?.close();
     };
-  }, [accessToken, consentMode, connectionAttempt, loadNews, loadWeather, router, selectedPersona]);
+  }, [accessToken, consentMode, connectionAttempt, loadNews, loadWeather, router, selectedPersona, speakAssistantReply]);
 
   function restartWithPersona(personaId: string, pendingMessage = "", profileOverride?: Persona) {
     socketRef.current?.close();
     socketRef.current = null;
     sessionIdRef.current = "";
     assistantIdRef.current = null;
+    assistantTextRef.current = "";
     pendingMessageRef.current = pendingMessage;
     hasSentMessageRef.current = false;
     const nextPersona = profileOverride ?? personas.find((item) => item.id === personaId) ?? DEFAULT_PERSONA;
@@ -435,11 +574,15 @@ export default function ElderCompanionPage() {
         return;
       }
     }
+    prepareSpeechPlayback();
+    playbackSourceRef.current?.stop();
+    setIsSpeaking(false);
     setMessages((current) => [...current, { id: crypto.randomUUID(), role: "user", content: text, at: new Date() }]);
     setInput("");
     setBusy(true);
     hasSentMessageRef.current = true;
     assistantIdRef.current = null;
+    assistantTextRef.current = "";
     socketRef.current.send(JSON.stringify({ type: "message", text, knowledge: relevantKnowledge(selectedPersona, text) }));
   }
 
@@ -517,6 +660,7 @@ export default function ElderCompanionPage() {
     socketRef.current?.close();
     socketRef.current = null;
     assistantIdRef.current = null;
+    assistantTextRef.current = "";
     pendingMessageRef.current = "";
     hasSentMessageRef.current = false;
     setConsentMode(null);
@@ -539,7 +683,11 @@ export default function ElderCompanionPage() {
       ? "offline"
       : status === "正在连接"
         ? "thinking"
-        : busy
+        : voiceState === "recording"
+          ? "listening"
+          : isSpeaking
+            ? "speaking"
+            : busy
           ? latestMessage?.role === "assistant" ? "speaking" : "thinking"
           : activePanel === "chat" ? "listening" : "idle";
 
@@ -640,7 +788,22 @@ export default function ElderCompanionPage() {
               <label htmlFor="lobby-message">现在想和{selectedPersona.name}说什么？</label>
               <div>
                 <input id="lobby-message" value={input} onChange={(event) => setInput(event.target.value)} maxLength={8000} placeholder="点这里输入一句话" disabled={busy} />
+                <button
+                  className={`voice-button${voiceState === "recording" ? " recording" : ""}`}
+                  type="button"
+                  onClick={() => { void toggleVoiceCapture(); }}
+                  disabled={busy || voiceState === "transcribing" || !voiceHealth.asr}
+                >
+                  {voiceState === "recording" ? "说完了" : voiceState === "transcribing" ? "识别中…" : "按一下说话"}
+                </button>
                 <button type="submit" disabled={busy || status !== "可以使用"}>{busy ? "正在听" : "说给遥遥听"}</button>
+              </div>
+              <div className="voice-feedback" aria-live="polite">
+                <span>{voiceNotice}</span>
+                <label>
+                  <input type="checkbox" checked={ttsEnabled} disabled={!voiceHealth.tts} onChange={(event) => setTtsEnabled(event.target.checked)} />
+                  自动读出回复
+                </label>
               </div>
             </form>
           </div>
@@ -744,7 +907,14 @@ export default function ElderCompanionPage() {
                   aria-label="输入消息"
                   disabled={busy}
                 />
+                <button
+                  className={`voice-button${voiceState === "recording" ? " recording" : ""}`}
+                  type="button"
+                  onClick={() => { void toggleVoiceCapture(); }}
+                  disabled={busy || voiceState === "transcribing" || !voiceHealth.asr}
+                >{voiceState === "recording" ? "说完了" : voiceState === "transcribing" ? "识别中…" : "语音输入"}</button>
                 <button type="submit" disabled={busy || status !== "可以使用"}>发送</button>
+                <p className="composer-voice-status" aria-live="polite">{voiceNotice}</p>
               </form>
             </div>
           )}

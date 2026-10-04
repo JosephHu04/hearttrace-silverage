@@ -31,6 +31,14 @@ class Settings(BaseSettings):
     elder_default_location: str = "澳门"
     elder_default_latitude: float = 22.1987
     elder_default_longitude: float = 113.5439
+    funasr_url: str = "http://127.0.0.1:10095"
+    fish_speech_url: str = "http://127.0.0.1:50000"
+    fish_speech_reference_id: str = "song_yusheng_square_4_denoised"
+    fish_speech_sample_rate: int = 44100
+    speech_service_api_key: str = ""
+    speech_request_timeout_seconds: float = 180.0
+    speech_max_audio_bytes: int = 8_000_000
+    speech_max_tts_characters: int = 800
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

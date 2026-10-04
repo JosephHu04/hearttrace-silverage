@@ -7,7 +7,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import get_settings
 from app.db.seed import seed_demo_data
 from app.db.session import SessionLocal, create_schema, engine
-from app.routers import admin_accounts, admin_risks, auth, conversations, daily_check_ins, emergencies, family, notifications, screenings
+from app.routers import (
+    admin_accounts,
+    admin_risks,
+    auth,
+    conversations,
+    daily_check_ins,
+    emergencies,
+    family,
+    notifications,
+    screenings,
+    speech,
+)
 from app.schemas import HealthOut
 
 
@@ -59,6 +70,7 @@ def create_app() -> FastAPI:
         allow_credentials=False,
         allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type"],
+        expose_headers=["X-Audio-Format", "X-Audio-Sample-Rate"],
     )
     application.include_router(auth.router, prefix=settings.api_prefix)
     application.include_router(admin_accounts.router, prefix=settings.api_prefix)
@@ -69,6 +81,7 @@ def create_app() -> FastAPI:
     application.include_router(daily_check_ins.router, prefix=settings.api_prefix)
     application.include_router(screenings.router, prefix=settings.api_prefix)
     application.include_router(notifications.router, prefix=settings.api_prefix)
+    application.include_router(speech.router, prefix=settings.api_prefix)
 
     @application.get(f"{settings.api_prefix}/health", response_model=HealthOut, tags=["system"])
     def health() -> HealthOut:

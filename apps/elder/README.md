@@ -22,5 +22,10 @@ npm run dev
 - `WS /api/realtime/conversation`：第一帧发送 `authenticate`，之后发送 `message`。
 - `GET /api/elder/widgets/weather`：天气卡片。
 - `GET /api/elder/widgets/news`：资讯卡片。
+- `GET /api/speech/health`：检查 FunASR 语音识别与 Fish Speech 回复播报。
+- `POST /api/speech/transcribe`：将用户主动录制的 WAV 转成文字；识别后先回填到输入框，由用户确认后再发送。
+- `POST /api/speech/synthesize`：用已授权的 Fish Speech 音色播报助手最终回复。
 
 访问令牌通过 WebSocket 第一帧传递，不放在 URL 查询参数中。
+
+录音只会在用户按下“按一下说话”后开始，最长 45 秒；没有操作时不会后台监听。语音模型离线时，页面会明确提示并自动保留打字聊天功能。

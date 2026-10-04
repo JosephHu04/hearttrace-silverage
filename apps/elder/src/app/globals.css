@@ -399,10 +399,26 @@ button:focus-visible, textarea:focus-visible, a:focus-visible {
   backdrop-filter: blur(16px);
 }
 .lobby-composer > label { display: block; margin: 0 0 8px 6px; color: var(--muted); font-size: .95rem; font-weight: 700; }
-.lobby-composer > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; }
+.lobby-composer > div:first-of-type { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 12px; }
 .lobby-composer input { min-height: 62px; padding: 0 20px; border: 2px solid #8b918a; border-radius: 16px; background: white; font-size: 1.2rem; }
 .lobby-composer button { min-height: 62px; padding: 0 26px; border: 0; border-radius: 16px; color: white; background: var(--focus); font-size: 1.16rem; font-weight: 900; }
 .lobby-composer button:disabled { cursor: not-allowed; opacity: .5; }
+.lobby-composer .voice-button, .composer .voice-button { background: #51745d; }
+.lobby-composer .voice-button.recording, .composer .voice-button.recording { background: #a63f45; box-shadow: 0 0 0 5px rgba(166, 63, 69, .14); }
+.voice-feedback {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 28px;
+  padding: 8px 6px 0;
+  color: var(--muted);
+  font-size: .88rem;
+  font-weight: 700;
+}
+.voice-feedback span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.voice-feedback label { display: flex; flex: none; align-items: center; gap: 7px; cursor: pointer; }
+.voice-feedback input { width: 18px; min-height: 18px; accent-color: var(--focus); }
 .lobby-persona-manager { margin-top: 0; }
 
 @keyframes lobby-idle {
@@ -663,7 +679,7 @@ button:focus-visible, textarea:focus-visible, a:focus-visible {
 
 .composer {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 14px;
   padding: 20px;
   border-top: 2px solid var(--line);
@@ -696,6 +712,7 @@ button:focus-visible, textarea:focus-visible, a:focus-visible {
 }
 
 .composer button:disabled { cursor: not-allowed; opacity: .48; }
+.composer-voice-status { grid-column: 1 / -1; margin: -4px 2px 0; color: var(--muted); font-size: .95rem; }
 
 .persona-home-card {
   grid-column: 1 / -1;
@@ -1061,8 +1078,10 @@ button:focus-visible, textarea:focus-visible, a:focus-visible {
   .lobby-speech { top: 475px; }
   .lobby-actions { top: 710px; grid-template-columns: 1fr; }
   .lobby-actions > button, .lobby-actions > a { min-height: 66px; }
-  .lobby-composer > div { grid-template-columns: 1fr; }
+  .lobby-composer > div:first-of-type { grid-template-columns: 1fr; }
   .lobby-composer button { width: 100%; }
+  .voice-feedback { align-items: flex-start; flex-direction: column; }
+  .voice-feedback span { white-space: normal; }
 }
 
 @media (prefers-reduced-motion: reduce) {

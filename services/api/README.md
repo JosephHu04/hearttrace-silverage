@@ -23,6 +23,16 @@ OpenAPI 地址为 `http://localhost:8000/docs`，健康检查为 `GET /api/healt
 
 实时陪伴使用 `DASHSCOPE_COMPANION_MODEL`（默认 `qwen3.8-flash`）和 8 秒截止时间；异步分析使用 `DASHSCOPE_MODEL`（默认 `qwen-plus`）。只有 `saveMessages=true` 与 `allowAnalysis=true` 同时成立时，助手回复落库事务才会创建只含 ID 引用的分析事件；Outbox 不保存对话原文。真实 API Key 只能放在本机环境或密钥管理服务中。
 
+## 老人端语音
+
+语音链路复用老人端原型的 FunASR 和 Fish Speech 1.5：
+
+- `GET /api/speech/health`：查看识别与播报服务是否就绪。
+- `POST /api/speech/transcribe`：仅接受老人身份的 16 kHz 单声道 WAV，并转发给 FunASR。录音不写入数据库或日志。
+- `POST /api/speech/synthesize`：仅接受老人身份，调用 Fish Speech 返回 PCM S16LE 音频。
+
+本地默认地址为 `http://127.0.0.1:10095` 和 `http://127.0.0.1:50000`，默认音色标识为 `song_yusheng_square_4_denoised`。部署时用 `FUNASR_URL`、`FISH_SPEECH_URL` 和 `FISH_SPEECH_REFERENCE_ID` 覆盖；如果语音服务不在同一台机器，应使用内网地址并通过 `SPEECH_SERVICE_API_KEY` 保护，不要直接暴露模型端口。克隆音色的参考音频需要另行确认配音者授权，本仓库只保存音色标识，不保存生物特征样本。
+
 ## 演示登录
 
 向 `POST /api/auth/demo-login` 提交：
