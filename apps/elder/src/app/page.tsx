@@ -12,10 +12,11 @@ const API_ORIGIN = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:80
   .replace(/\/$/, "");
 const API_BASE = `${API_ORIGIN}/api`;
 
-type ActivePanel = "home" | "chat" | "time" | "weather" | "news" | "checkin";
+type ActivePanel = "home" | "chat" | "weather" | "news" | "checkin";
 type ConsentMode = "private" | "care";
 type EmergencyState = "idle" | "confirming" | "submitting" | "sent" | "error";
 type CompanionVisualState = "idle" | "listening" | "thinking" | "speaking" | "alert" | "offline";
+type CompanionIdleAction = "none" | "wave" | "bounce" | "peek" | "sparkle";
 type VoiceState = "idle" | "recording" | "transcribing";
 type VoiceHealth = { asr: boolean; tts: boolean; checked: boolean };
 type ChatMessage = { id: string; role: "user" | "assistant"; content: string; at: Date | null };
@@ -113,6 +114,8 @@ export default function ElderCompanionPage() {
   const [voiceNotice, setVoiceNotice] = useState("正在检查语音服务");
   const [ttsEnabled, setTtsEnabled] = useState(true);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [companionIdleAction, setCompanionIdleAction] = useState<CompanionIdleAction>("none");
+  const [companionReaction, setCompanionReaction] = useState("");
   const [personas, setPersonas] = useState<Persona[]>([DEFAULT_PERSONA]);
   const [personasLoaded, setPersonasLoaded] = useState(false);
   const [selectedPersonaId, setSelectedPersonaId] = useState(DEFAULT_PERSONA.id);
@@ -143,6 +146,7 @@ export default function ElderCompanionPage() {
   const voiceTimerRef = useRef<number | null>(null);
   const playbackContextRef = useRef<AudioContext | null>(null);
   const playbackSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const characterActionTimerRef = useRef<number | null>(null);
   const voiceHealthRef = useRef(voiceHealth);
   const ttsEnabledRef = useRef(ttsEnabled);
 
@@ -188,9 +192,21 @@ export default function ElderCompanionPage() {
 
   useEffect(() => () => {
     if (voiceTimerRef.current !== null) window.clearTimeout(voiceTimerRef.current);
+    if (characterActionTimerRef.current !== null) window.clearTimeout(characterActionTimerRef.current);
     if (voiceCaptureRef.current) stopVoiceCaptureWithoutSaving(voiceCaptureRef.current);
     playbackSourceRef.current?.stop();
     void playbackContextRef.current?.close();
+  }, []);
+
+  const playCharacterAction = useCallback((action: Exclude<CompanionIdleAction, "none">, reaction: string, duration = 2200) => {
+    if (characterActionTimerRef.current !== null) window.clearTimeout(characterActionTimerRef.current);
+    setCompanionIdleAction(action);
+    setCompanionReaction(reaction);
+    characterActionTimerRef.current = window.setTimeout(() => {
+      setCompanionIdleAction("none");
+      setCompanionReaction("");
+      characterActionTimerRef.current = null;
+    }, duration);
   }, []);
 
   const prepareSpeechPlayback = useCallback(() => {
@@ -410,6 +426,32 @@ export default function ElderCompanionPage() {
   useEffect(() => {
     if (activePanel === "chat") bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [activePanel, messages, busy]);
+
+  useEffect(() => {
+    const canPlayIdleAction = activePanel === "home"
+      && status === "可以使用"
+      && !busy
+      && !isSpeaking
+      && voiceState === "idle"
+      && emergencyState === "idle";
+    if (!canPlayIdleAction) {
+      setCompanionIdleAction("none");
+      setCompanionReaction("");
+      return;
+    }
+    const actions: Array<{ action: Exclude<CompanionIdleAction, "none">; reaction: string; duration: number }> = [
+      { action: "wave", reaction: "嗨，我在这里", duration: 2400 },
+      { action: "bounce", reaction: "今天也要好好的", duration: 2100 },
+      { action: "peek", reaction: "想说什么都可以", duration: 2500 },
+      { action: "sparkle", reaction: "我来陪您啦", duration: 2300 }
+    ];
+    let idleTimer = window.setTimeout(function scheduleAction() {
+      const next = actions[Math.floor(Math.random() * actions.length)];
+      playCharacterAction(next.action, next.reaction, next.duration);
+      idleTimer = window.setTimeout(scheduleAction, next.duration + 7000 + Math.random() * 7000);
+    }, 5000 + Math.random() * 5000);
+    return () => window.clearTimeout(idleTimer);
+  }, [activePanel, busy, emergencyState, isSpeaking, playCharacterAction, status, voiceState]);
 
   useEffect(() => {
     if (!consentMode || !accessToken) return;
@@ -756,13 +798,28 @@ export default function ElderCompanionPage() {
             </div>
 
             <button
-              className={`lobby-character lobby-character-${companionVisualState}`}
+              className={`lobby-character lobby-character-${companionVisualState} lobby-action-${companionIdleAction}`}
               type="button"
-              onClick={() => setActivePanel("chat")}
-              aria-label={`${selectedPersona.name}，${COMPANION_STATE_LABELS[companionVisualState]}，点击查看对话记录`}
+              onClick={() => {
+                if (companionVisualState === "idle") playCharacterAction("wave", "我在呢！想说什么都可以", 2600);
+              }}
+              onPointerMove={(event) => {
+                const rect = event.currentTarget.getBoundingClientRect();
+                event.currentTarget.style.setProperty("--look-x", `${((event.clientX - rect.left) / rect.width - 0.5) * 10}px`);
+                event.currentTarget.style.setProperty("--look-y", `${((event.clientY - rect.top) / rect.height - 0.5) * 7}px`);
+              }}
+              onPointerLeave={(event) => {
+                event.currentTarget.style.setProperty("--look-x", "0px");
+                event.currentTarget.style.setProperty("--look-y", "0px");
+              }}
+              aria-label={`${selectedPersona.name}，${COMPANION_STATE_LABELS[companionVisualState]}，点击和他互动`}
             >
               <span className="lobby-character-ring" aria-hidden="true" />
-              <Image src="/companion/yaoyao-stage-v2.png" width={1024} height={1536} sizes="(max-width: 760px) 54vw, 380px" alt="" priority />
+              <span className="lobby-character-body" aria-hidden="true">
+                <Image src="/companion/yaoyao-stage-v2.png" width={1024} height={1536} sizes="(max-width: 760px) 54vw, 380px" alt="" priority />
+              </span>
+              {companionReaction && <span className="lobby-character-reaction" aria-live="polite">{companionReaction}</span>}
+              <span className="lobby-character-sparkles" aria-hidden="true"><i /> <i /> <i /></span>
               <span className="lobby-character-name"><strong>{selectedPersona.name}</strong><small>{COMPANION_STATE_LABELS[companionVisualState]}</small></span>
             </button>
 
@@ -776,8 +833,7 @@ export default function ElderCompanionPage() {
               <button type="button" onClick={() => setActivePanel("checkin")}><span>每日自述</span><small>记录今天的状态</small></button>
               <Link href="/screening"><span>关怀小测</span><small>本人愿意时再做</small></Link>
               <button type="button" onClick={() => setActivePanel("news")}><span>听听资讯</span><small>看看今天的新鲜事</small></button>
-              <button type="button" onClick={() => setActivePanel("time")}><span>时间日期</span><small>{now ? displayTime(now) : "正在读取"}</small></button>
-              <button type="button" aria-expanded={personaManagerOpen} onClick={() => setPersonaManagerOpen((open) => !open)}><span>陪伴者</span><small>选择不同说话风格</small></button>
+              <button type="button" aria-expanded={personaManagerOpen} onClick={() => setPersonaManagerOpen((open) => !open)}><span>陪伴设置</span><small>选择不同说话风格</small></button>
             </nav>
 
             <button className="lobby-emergency" type="button" disabled={emergencyState === "submitting" || emergencyState === "sent"} onClick={() => setEmergencyState("confirming")}>
@@ -872,7 +928,7 @@ export default function ElderCompanionPage() {
         <section className={`panel-view panel-${activePanel}`}>
           <header className="panel-header">
             <button className="back-button" type="button" onClick={() => setActivePanel("home")}>返回首页</button>
-            <h1>{activePanel === "chat" ? `和${selectedPersona.name}聊聊` : activePanel === "time" ? "现在时间" : activePanel === "weather" ? "今日天气" : activePanel === "checkin" ? "每日自述" : "最新资讯"}</h1>
+            <h1>{activePanel === "chat" ? `和${selectedPersona.name}聊聊` : activePanel === "weather" ? "今日天气" : activePanel === "checkin" ? "每日自述" : "最新资讯"}</h1>
           </header>
 
           {activePanel === "chat" && (
@@ -916,14 +972,6 @@ export default function ElderCompanionPage() {
                 <button type="submit" disabled={busy || status !== "可以使用"}>发送</button>
                 <p className="composer-voice-status" aria-live="polite">{voiceNotice}</p>
               </form>
-            </div>
-          )}
-
-          {activePanel === "time" && (
-            <div className="time-view">
-              <strong>{now ? displayTime(now) : "--:--"}</strong>
-              <p>{dayPeriod}</p>
-              <span>{dateText}</span>
             </div>
           )}
 
