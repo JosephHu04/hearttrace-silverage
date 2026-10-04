@@ -38,3 +38,6 @@ assets/blender/candidates/*.blend
 assets/blender/candidates/*.blend1
 assets/blender/candidates/*.glb
 assets/blender/candidates/*.png
+
+# Local browser-only motion candidate (large, not approved for product use)
+apps/elder/public/companion/candidates/*.glb
