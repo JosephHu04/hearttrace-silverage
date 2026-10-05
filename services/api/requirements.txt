@@ -7,3 +7,4 @@ PyJWT>=2.10,<3
 psycopg[binary]>=3.2,<4
 openai>=1.99,<2
 httpx>=0.28,<1
+websockets>=15,<18

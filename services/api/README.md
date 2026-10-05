@@ -21,17 +21,18 @@ alembic upgrade head
 
 OpenAPI 地址为 `http://localhost:8000/docs`，健康检查为 `GET /api/health`。
 
-实时陪伴使用 `DASHSCOPE_COMPANION_MODEL`（默认 `qwen3.8-flash`）和 8 秒截止时间；异步分析使用 `DASHSCOPE_MODEL`（默认 `qwen-plus`）。只有 `saveMessages=true` 与 `allowAnalysis=true` 同时成立时，助手回复落库事务才会创建只含 ID 引用的分析事件；Outbox 不保存对话原文。真实 API Key 只能放在本机环境或密钥管理服务中。
+实时陪伴使用 `DASHSCOPE_COMPANION_MODEL`（默认 `qwen3.8-flash`，显式关闭思考模式）和 30 秒截止时间；异步分析使用 `DASHSCOPE_MODEL`（默认 `qwen-plus`）。后端记录随机追踪号、准备/首字/总耗时及上游错误类别，不记录聊天原文、语音或密钥。只有 `saveMessages=true` 与 `allowAnalysis=true` 同时成立时，助手回复落库事务才会创建只含 ID 引用的分析事件；Outbox 不保存对话原文。真实 API Key 只能放在本机环境或密钥管理服务中。
 
 ## 老人端语音
 
-语音链路复用老人端原型的 FunASR 和 Fish Speech 1.5：
+默认语音链路使用独立的阿里云百炼语音密钥：ASR 为 `qwen3-asr-flash`，TTS 为 `qwen-audio-3.0-tts-flash`（普通话音色 `longanfengyue`）。将 `SPEECH_DASHSCOPE_API_KEY` 仅配置在服务端 `.env.speech` 或部署环境变量中；聊天模型继续单独使用 `.env` 中的 `DASHSCOPE_API_KEY`。两个文件均被 Git 忽略。没有语音密钥时只保留打字聊天，不会回退到未配置的服务。
 
-- `GET /api/speech/health`：查看识别与播报服务是否就绪。
-- `POST /api/speech/transcribe`：仅接受老人身份的 16 kHz 单声道 WAV，并转发给 FunASR。录音不写入数据库或日志。
-- `POST /api/speech/synthesize`：仅接受老人身份，调用 Fish Speech 返回 PCM S16LE 音频。
+- `GET /api/speech/health`：查看语音密钥配置状态（不是付费的实时推理健康探测）。
+- `WS /api/realtime/speech`：老人身份认证后，把 16 kHz 单声道 PCM16 小段音频经后端转送 `qwen3-asr-flash-realtime`；发送 `finish` 后仅返回最终识别文本。网页无法接触语音密钥，失败时回退到下方 WAV 接口。
+- `POST /api/speech/transcribe`：仅接受老人身份的 WAV，转发给百炼 ASR；录音不写入数据库或日志。
+- `POST /api/speech/synthesize`：仅接受老人身份，调用百炼 TTS 并返回标准 WAV；老人端在模型生成完整短句后即按顺序合成和播报，不再等待整段回答完成，并按实际播放波形驱动精灵嘴型。
 
-本地默认地址为 `http://127.0.0.1:10095` 和 `http://127.0.0.1:50000`，默认音色标识为 `song_yusheng_square_4_denoised`。部署时用 `FUNASR_URL`、`FISH_SPEECH_URL` 和 `FISH_SPEECH_REFERENCE_ID` 覆盖；如果语音服务不在同一台机器，应使用内网地址并通过 `SPEECH_SERVICE_API_KEY` 保护，不要直接暴露模型端口。克隆音色的参考音频需要另行确认配音者授权，本仓库只保存音色标识，不保存生物特征样本。
+原型的 FunASR + Fish Speech 仍可通过 `SPEECH_PROVIDER=local` 启用；此时用 `FUNASR_URL`、`FISH_SPEECH_URL` 和 `FISH_SPEECH_REFERENCE_ID` 配置内网服务。克隆音色的参考音频需要另行确认配音者授权，本仓库不保存生物特征样本。云端模式下，用户主动提交的录音和助手回复文字会发送至阿里云百炼处理；正式使用前需完成知情同意与隐私评估。
 
 ## 演示登录
 

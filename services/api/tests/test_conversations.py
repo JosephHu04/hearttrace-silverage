@@ -95,6 +95,7 @@ def test_session_binds_a_validated_persona_without_new_database_tables(
         ready = websocket.receive_json()
 
     assert ready["persona"] == {"id": "lin-laoshi", "name": "林老师"}
+    assert ready["modelReady"] is False
 
 
 def test_memory_context_requires_repetition_for_implicit_facts() -> None:
@@ -200,6 +201,25 @@ def test_messages_are_only_persisted_after_explicit_consent(
     assert unsaved_history.status_code == 200
     assert unsaved_history.json() == []
     assert [item["role"] for item in saved_history.json()] == ["user", "assistant"]
+
+
+def test_missing_companion_key_is_reported_without_a_false_network_message(
+    client: TestClient,
+    elder_headers: dict[str, str],
+) -> None:
+    session = _create_session(client, elder_headers)
+    with client.websocket_connect("/api/realtime/conversation") as websocket:
+        websocket.send_json({
+            "type": "authenticate",
+            "accessToken": _token(elder_headers),
+            "sessionId": session["id"],
+        })
+        assert websocket.receive_json()["modelReady"] is False
+        websocket.send_json({"type": "message", "text": "我想孙子了"})
+        events = _receive_until_done(websocket)
+
+    assert events[-1]["model"] == "local-model-unconfigured"
+    assert "尚未配置" in events[-1]["reply"]
 
 
 def test_safety_language_bypasses_generation() -> None:

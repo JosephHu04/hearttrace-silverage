@@ -308,6 +308,10 @@ class ScreeningQuestionOut(ApiModel):
     choices: list[ScreeningChoiceOut]
 
 
+class ScreeningAnsweredQuestionOut(ScreeningQuestionOut):
+    selected_value: str
+
+
 class ScreeningInstrumentOut(ApiModel):
     code: ScreeningInstrumentCode
     version: str
@@ -339,6 +343,12 @@ class ScreeningAnswerRequest(ApiModel):
     value: str = Field(min_length=1, max_length=16)
 
 
+class ScreeningCorrectionRequest(ApiModel):
+    model_config = ConfigDict(extra="forbid")
+
+    value: str = Field(min_length=1, max_length=16)
+
+
 class ScreeningResultOut(ApiModel):
     total_score: int
     score_range: str
@@ -354,6 +364,7 @@ class ScreeningSessionOut(ApiModel):
     instrument: ScreeningInstrumentOut
     status: ScreeningStatus
     progress_answered: int
+    answered_questions: list[ScreeningAnsweredQuestionOut]
     share_with_family: bool
     share_with_care_team: bool
     current_question: Optional[ScreeningQuestionOut] = None

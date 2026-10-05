@@ -12,6 +12,7 @@ from app.dependencies import CurrentActor, DbSession, ElderActor, FamilyActor, R
 from app.routers.family import active_grant
 from app.schemas import (
     ScreeningAnswerRequest,
+    ScreeningCorrectionRequest,
     ScreeningInstrumentListOut,
     ScreeningSessionListOut,
     ScreeningSessionOut,
@@ -54,6 +55,14 @@ def _session_out(db: DbSession, session: ScreeningSession) -> ScreeningSessionOu
             "instrument": instrument_payload(instrument),
             "status": session.status,
             "progressAnswered": len(answers),
+            "answeredQuestions": [
+                {
+                    **question_payload(instrument, index),
+                    "selectedValue": answer.response_value,
+                }
+                for index, item in enumerate(instrument.items)
+                if (answer := next((row for row in answers if row.item_code == item.code), None)) is not None
+            ],
             "shareWithFamily": session.share_with_family,
             "shareWithCareTeam": session.share_with_care_team,
             "currentQuestion": question_payload(instrument, len(answers)) if session.status == "in_progress" else None,
@@ -265,6 +274,49 @@ def answer_screening(
         )
     db.commit()
     db.refresh(session)
+    return _session_out(db, session)
+
+
+@router.patch("/elder/screenings/{session_id}/answers/{item_code}", response_model=ScreeningSessionOut)
+def correct_screening_answer(
+    session_id: str,
+    item_code: str,
+    body: ScreeningCorrectionRequest,
+    db: DbSession,
+    elder: ElderActor,
+) -> ScreeningSessionOut:
+    session = db.get(ScreeningSession, session_id)
+    if session is None or session.elder_id != elder.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="筛查记录不存在")
+    if session.status != "in_progress":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="筛查已完成；如需重做请开始新的一次")
+    answer = db.scalar(
+        select(ScreeningAnswer).where(
+            ScreeningAnswer.session_id == session.id,
+            ScreeningAnswer.item_code == item_code,
+        )
+    )
+    if answer is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="该题尚未作答")
+    try:
+        score = score_response(get_instrument(session.instrument_code), item_code, body.value)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if answer.response_value != body.value:
+        answer.response_value = body.value
+        answer.score_value = score
+        answer.answered_at = utc_now()
+        session.updated_at = answer.answered_at
+        add_audit_log(
+            db,
+            actor_id=elder.id,
+            action="screening.answer_corrected",
+            target_type="screening_session",
+            target_id=session.id,
+            metadata={"itemCode": item_code},
+        )
+        db.commit()
+        db.refresh(session)
     return _session_out(db, session)
 
 

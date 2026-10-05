@@ -83,6 +83,59 @@ def test_gds15_is_scored_deterministically_and_retry_is_idempotent(
     assert "不构成精神疾病诊断" in completed["result"]["notice"]
 
 
+def test_elder_can_correct_previous_answer_before_completion(
+    client: TestClient, elder_headers: dict[str, str], family_headers: dict[str, str]
+):
+    session = start(client, elder_headers, "gad7").json()
+    first_code = session["currentQuestion"]["itemCode"]
+    first = client.post(
+        f"/api/elder/screenings/{session['id']}/answers",
+        headers=elder_headers,
+        json={"itemCode": first_code, "value": "3"},
+    ).json()
+    assert first["answeredQuestions"][0]["selectedValue"] == "3"
+    preflight = client.options(
+        f"/api/elder/screenings/{session['id']}/answers/{first_code}",
+        headers={
+            "Origin": "http://127.0.0.1:3002",
+            "Access-Control-Request-Method": "PATCH",
+            "Access-Control-Request-Headers": "authorization,content-type",
+        },
+    )
+    assert preflight.status_code == 200
+    assert "PATCH" in preflight.headers["access-control-allow-methods"]
+
+    correction = client.patch(
+        f"/api/elder/screenings/{session['id']}/answers/{first_code}",
+        headers=elder_headers,
+        json={"value": "0"},
+    )
+    assert correction.status_code == 200
+    corrected = correction.json()
+    assert corrected["progressAnswered"] == 1
+    assert corrected["currentQuestion"]["number"] == 2
+    assert corrected["answeredQuestions"][0]["selectedValue"] == "0"
+    assert client.patch(
+        f"/api/elder/screenings/{session['id']}/answers/{first_code}",
+        headers=family_headers,
+        json={"value": "3"},
+    ).status_code in (403, 404)
+    assert client.patch(
+        f"/api/elder/screenings/{session['id']}/answers/{first_code}",
+        headers=elder_headers,
+        json={"value": "invalid"},
+    ).status_code == 400
+
+    completed = answer_all(client, elder_headers, corrected, ["0"] * 6)
+    assert completed["result"]["totalScore"] == 0
+    assert len(completed["answeredQuestions"]) == 7
+    assert client.patch(
+        f"/api/elder/screenings/{session['id']}/answers/{first_code}",
+        headers=elder_headers,
+        json={"value": "3"},
+    ).status_code == 409
+
+
 def test_shared_high_screening_enters_staff_queue_without_exposing_answers_to_family(
     client: TestClient,
     elder_headers: dict[str, str],
@@ -111,6 +164,7 @@ def test_shared_high_screening_enters_staff_queue_without_exposing_answers_to_fa
     assert item["band"] == "high"
     assert "totalScore" not in item
     assert "answers" not in item
+    assert "answeredQuestions" not in item
 
     denied = client.get(
         "/api/family/elders/elder-demo-001/screenings",

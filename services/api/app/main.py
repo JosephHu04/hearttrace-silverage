@@ -16,6 +16,7 @@ from app.routers import (
     emergencies,
     family,
     notifications,
+    realtime_speech,
     screenings,
     speech,
 )
@@ -68,7 +69,7 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_credentials=False,
-        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type"],
         expose_headers=["X-Audio-Format", "X-Audio-Sample-Rate"],
     )
@@ -78,6 +79,7 @@ def create_app() -> FastAPI:
     application.include_router(family.router, prefix=settings.api_prefix)
     application.include_router(emergencies.router, prefix=settings.api_prefix)
     application.include_router(conversations.router, prefix=settings.api_prefix)
+    application.include_router(realtime_speech.router, prefix=settings.api_prefix)
     application.include_router(daily_check_ins.router, prefix=settings.api_prefix)
     application.include_router(screenings.router, prefix=settings.api_prefix)
     application.include_router(notifications.router, prefix=settings.api_prefix)

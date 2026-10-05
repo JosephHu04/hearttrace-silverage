@@ -49,6 +49,7 @@ export default function Companion3DPage() {
           <div><strong>心迹银龄</strong><small>角色研发室</small></div>
         </Link>
         <nav aria-label="角色页面导航">
+          <Link href="/companion-3d/mascot-preview">圆球精灵新方案 ✦</Link>
           <a href="#motion-system">待机动作</a>
           <a href="#character-lineup">角色方案</a>
           <Link href="/">返回老人端</Link>

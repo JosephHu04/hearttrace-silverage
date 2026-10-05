@@ -1,10 +1,13 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import Image from "next/image";
-import { playPcmS16le, startVoiceCapture, stopVoiceCapture, stopVoiceCaptureWithoutSaving, type VoiceCapture } from "@/lib/voice-audio";
+import { playWavAudio, startVoiceCapture, stopVoiceCapture, stopVoiceCaptureWithoutSaving, type VoiceCapture } from "@/lib/voice-audio";
+import { MASCOT_SKIN_STORAGE_KEY, Mascot3D, type MascotKind, type MascotMood } from "@/components/Mascot3D";
+import { HandsFreeCallCapture } from "@/components/HandsFreeCallCapture";
+import { startRealtimeAsr, type RealtimeAsrSession } from "@/lib/realtime-asr";
+import { splitSpokenText } from "@/lib/speech-chunks";
 
 // All three clients configure the API origin. Accept the older /api suffix too.
 const API_ORIGIN = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000")
@@ -12,13 +15,14 @@ const API_ORIGIN = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:80
   .replace(/\/$/, "");
 const API_BASE = `${API_ORIGIN}/api`;
 
-type ActivePanel = "home" | "chat" | "weather" | "news" | "checkin";
+type ActivePanel = "home" | "chat" | "weather" | "news" | "checkin" | "voiceCall";
 type ConsentMode = "private" | "care";
 type EmergencyState = "idle" | "confirming" | "submitting" | "sent" | "error";
 type CompanionVisualState = "idle" | "listening" | "thinking" | "speaking" | "alert" | "offline";
 type CompanionIdleAction = "none" | "wave" | "bounce" | "peek" | "sparkle";
 type VoiceState = "idle" | "recording" | "transcribing";
-type VoiceHealth = { asr: boolean; tts: boolean; checked: boolean };
+type VoiceCallPhase = "idle" | "listening" | "hearing" | "processing" | "speaking" | "muted" | "error";
+type VoiceHealth = { asr: boolean; tts: boolean; realtimeAsr: boolean; checked: boolean };
 type ChatMessage = { id: string; role: "user" | "assistant"; content: string; at: Date | null };
 type Weather = {
   location: string;
@@ -63,8 +67,14 @@ type ServerEvent = {
   text?: string;
   message?: string;
   kind?: string;
+  model?: string;
+  modelReady?: boolean;
   data?: Weather | { items: NewsItem[]; stale: boolean } | { time: string; date: string; weekday: string };
 };
+
+function connectionNeedsAttention(value: string): boolean {
+  return ["服务未启动", "连接不稳", "暂时离线", "模型未配置", "模型暂时不可用"].includes(value);
+}
 
 function websocketEndpoint(): string {
   const url = new URL(API_BASE);
@@ -110,12 +120,16 @@ export default function ElderCompanionPage() {
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState("遥遥正在回复");
   const [voiceState, setVoiceState] = useState<VoiceState>("idle");
-  const [voiceHealth, setVoiceHealth] = useState<VoiceHealth>({ asr: false, tts: false, checked: false });
+  const [voiceHealth, setVoiceHealth] = useState<VoiceHealth>({ asr: false, tts: false, realtimeAsr: false, checked: false });
   const [voiceNotice, setVoiceNotice] = useState("正在检查语音服务");
+  const [voiceCallPhase, setVoiceCallPhase] = useState<VoiceCallPhase>("idle");
+  const [voiceCallNotice, setVoiceCallNotice] = useState("");
+  const [voiceCallMuted, setVoiceCallMuted] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(true);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [companionIdleAction, setCompanionIdleAction] = useState<CompanionIdleAction>("none");
   const [companionReaction, setCompanionReaction] = useState("");
+  const [mascotKind, setMascotKind] = useState<MascotKind>("moss");
   const [personas, setPersonas] = useState<Persona[]>([DEFAULT_PERSONA]);
   const [personasLoaded, setPersonasLoaded] = useState(false);
   const [selectedPersonaId, setSelectedPersonaId] = useState(DEFAULT_PERSONA.id);
@@ -143,15 +157,33 @@ export default function ElderCompanionPage() {
   const hasSentMessageRef = useRef(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const voiceCaptureRef = useRef<VoiceCapture | null>(null);
+  const realtimeAsrRef = useRef<RealtimeAsrSession | null>(null);
+  const voiceCallActiveRef = useRef(false);
+  const voiceCallMutedRef = useRef(false);
+  const voiceCallGenerationRef = useRef(0);
+  const voicePressActiveRef = useRef(false);
+  const voiceCaptureStartedAtRef = useRef(0);
+  const lastVoiceKeyUpAtRef = useRef(0);
   const voiceTimerRef = useRef<number | null>(null);
   const playbackContextRef = useRef<AudioContext | null>(null);
   const playbackSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const mouthLevelRef = useRef(0);
+  const speechRequestSeqRef = useRef(0);
+  const speechBufferRef = useRef("");
+  const speechQueueRef = useRef<string[]>([]);
+  const speechDrainRef = useRef<Promise<void> | null>(null);
+  const speechAbortRef = useRef<AbortController | null>(null);
   const characterActionTimerRef = useRef<number | null>(null);
   const voiceHealthRef = useRef(voiceHealth);
   const ttsEnabledRef = useRef(ttsEnabled);
 
   useEffect(() => { voiceHealthRef.current = voiceHealth; }, [voiceHealth]);
   useEffect(() => { ttsEnabledRef.current = ttsEnabled; }, [ttsEnabled]);
+
+  useEffect(() => {
+    const stored = window.localStorage.getItem(MASCOT_SKIN_STORAGE_KEY);
+    if (stored === "moss" || stored === "cloud") setMascotKind(stored);
+  }, []);
 
   useEffect(() => {
     try {
@@ -174,28 +206,61 @@ export default function ElderCompanionPage() {
       try {
         const response = await fetch(`${API_BASE}/speech/health`, { headers: { Authorization: `Bearer ${tokenRef.current}` } });
         if (!response.ok) throw new Error("语音服务检查失败");
-        const result = await response.json() as { asr?: boolean; tts?: boolean };
+        const result = await response.json() as { asr?: boolean; tts?: boolean; realtimeAsr?: boolean };
         if (cancelled) return;
-        const health = { asr: result.asr === true, tts: result.tts === true, checked: true };
+        const health = { asr: result.asr === true, tts: result.tts === true, realtimeAsr: result.realtimeAsr === true, checked: true };
         setVoiceHealth(health);
-        setVoiceNotice(health.asr && health.tts ? "语音识别和回复播报已就绪" : health.asr ? "可以语音输入，回复播报暂未连接" : health.tts ? "可以播放回复，语音输入暂未连接" : "语音服务暂未启动，仍可打字聊天");
+        if (voiceState === "idle") setVoiceNotice(health.asr && health.tts ? "语音识别和回复播报已就绪" : health.asr ? "可以语音输入，回复播报暂未连接" : health.tts ? "可以播放回复，语音输入暂未连接" : "语音服务暂未启动");
       } catch {
         if (!cancelled) {
-          setVoiceHealth({ asr: false, tts: false, checked: true });
-          setVoiceNotice("语音服务暂未启动，仍可打字聊天");
+          setVoiceHealth({ asr: false, tts: false, realtimeAsr: false, checked: true });
+          if (voiceState === "idle") setVoiceNotice("连接语音服务失败；系统会自动重试");
         }
       }
     }
     void checkVoiceServices();
-    return () => { cancelled = true; };
-  }, [accessToken]);
+    const timer = window.setInterval(() => { void checkVoiceServices(); }, 15_000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [accessToken, voiceState]);
 
   useEffect(() => () => {
+    voiceCallActiveRef.current = false;
+    voiceCallGenerationRef.current += 1;
     if (voiceTimerRef.current !== null) window.clearTimeout(voiceTimerRef.current);
     if (characterActionTimerRef.current !== null) window.clearTimeout(characterActionTimerRef.current);
     if (voiceCaptureRef.current) stopVoiceCaptureWithoutSaving(voiceCaptureRef.current);
+    realtimeAsrRef.current?.cancel();
+    speechRequestSeqRef.current += 1;
+    speechAbortRef.current?.abort();
+    speechQueueRef.current = [];
+    speechBufferRef.current = "";
     playbackSourceRef.current?.stop();
+    mouthLevelRef.current = 0;
     void playbackContextRef.current?.close();
+  }, []);
+
+  useEffect(() => {
+    const stopHiddenCall = () => {
+      if (!document.hidden || !voiceCallActiveRef.current) return;
+      voiceCallActiveRef.current = false;
+      voiceCallMutedRef.current = false;
+      voiceCallGenerationRef.current += 1;
+      realtimeAsrRef.current?.cancel();
+      realtimeAsrRef.current = null;
+      speechRequestSeqRef.current += 1;
+      speechAbortRef.current?.abort();
+      speechQueueRef.current = [];
+      speechBufferRef.current = "";
+      playbackSourceRef.current?.stop();
+      playbackSourceRef.current = null;
+      mouthLevelRef.current = 0;
+      setIsSpeaking(false);
+      setVoiceCallMuted(false);
+      setVoiceCallPhase("idle");
+      setActivePanel("home");
+    };
+    document.addEventListener("visibilitychange", stopHiddenCall);
+    return () => document.removeEventListener("visibilitychange", stopHiddenCall);
   }, []);
 
   const playCharacterAction = useCallback((action: Exclude<CompanionIdleAction, "none">, reaction: string, duration = 2200) => {
@@ -217,33 +282,192 @@ export default function ElderCompanionPage() {
     if (playbackContextRef.current.state === "suspended") void playbackContextRef.current.resume();
   }, []);
 
-  const speakAssistantReply = useCallback(async (text: string) => {
+  const speakAssistantReply = useCallback(async (text: string, requestId: number): Promise<boolean> => {
     const clean = text.replace(/\[[^\]]+\]/g, "").trim().slice(0, 800);
-    if (!clean || !voiceHealthRef.current.tts || !ttsEnabledRef.current) return;
+    if (!clean || !voiceHealthRef.current.tts || !ttsEnabledRef.current) return false;
+    const controller = new AbortController();
+    speechAbortRef.current = controller;
     try {
       prepareSpeechPlayback();
       const response = await fetch(`${API_BASE}/speech/synthesize`, {
         method: "POST",
         headers: { Authorization: `Bearer ${tokenRef.current}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ text: clean })
+        body: JSON.stringify({ text: clean }),
+        signal: controller.signal
       });
       if (!response.ok) throw new Error("回复播报暂时失败");
       const context = playbackContextRef.current;
-      if (!context) return;
-      const sampleRate = Number(response.headers.get("X-Audio-Sample-Rate")) || 44100;
-      setIsSpeaking(true);
-      await playPcmS16le(context, await response.arrayBuffer(), sampleRate, (source) => { playbackSourceRef.current = source; });
+      if (!context || requestId !== speechRequestSeqRef.current || !ttsEnabledRef.current) return false;
+      if (response.headers.get("X-Audio-Format") !== "wav") throw new Error("语音格式不受支持");
+      await playWavAudio(context, await response.arrayBuffer(), (source) => {
+        if (requestId !== speechRequestSeqRef.current) return;
+        playbackSourceRef.current = source;
+        setIsSpeaking(Boolean(source));
+      }, (level) => {
+        if (requestId === speechRequestSeqRef.current) mouthLevelRef.current = level;
+      }, () => requestId === speechRequestSeqRef.current && ttsEnabledRef.current);
+      return requestId === speechRequestSeqRef.current;
     } catch {
-      setVoiceNotice("这次回复没能播出，文字已正常显示");
+      if (requestId === speechRequestSeqRef.current) setVoiceNotice("这次回复没能播出，文字已正常显示");
+      return false;
     } finally {
-      setIsSpeaking(false);
+      if (speechAbortRef.current === controller) speechAbortRef.current = null;
+      if (requestId === speechRequestSeqRef.current) {
+        mouthLevelRef.current = 0;
+        setIsSpeaking(false);
+      }
     }
   }, [prepareSpeechPlayback]);
+
+  const drainSpeechQueue = useCallback((): Promise<void> => {
+    if (speechDrainRef.current) return speechDrainRef.current;
+    const requestId = speechRequestSeqRef.current;
+    const running = (async () => {
+      while (requestId === speechRequestSeqRef.current && speechQueueRef.current.length) {
+        const segment = speechQueueRef.current.shift();
+        if (!segment) continue;
+        if (voiceCallActiveRef.current) {
+          setVoiceCallPhase("speaking");
+          setVoiceCallNotice("遥遥正在回答；说完后会继续听您说");
+        }
+        const played = await speakAssistantReply(segment, requestId);
+        if (!played) {
+          if (requestId === speechRequestSeqRef.current) speechQueueRef.current = [];
+          break;
+        }
+      }
+    })();
+    speechDrainRef.current = running;
+    void running.finally(() => {
+      if (speechDrainRef.current === running) {
+        speechDrainRef.current = null;
+        if (speechQueueRef.current.length && requestId === speechRequestSeqRef.current) void drainSpeechQueue();
+      }
+    });
+    return running;
+  }, [speakAssistantReply]);
+
+  const queueSpokenText = useCallback((delta: string, flush = false): Promise<void> => {
+    if (!voiceHealthRef.current.tts || !ttsEnabledRef.current) return Promise.resolve();
+    const split = splitSpokenText(speechBufferRef.current + delta, flush);
+    speechBufferRef.current = split.remaining;
+    speechQueueRef.current.push(...split.segments);
+    return drainSpeechQueue();
+  }, [drainSpeechQueue]);
+
+  const stopSpeaking = useCallback(() => {
+    speechRequestSeqRef.current += 1;
+    speechAbortRef.current?.abort();
+    speechAbortRef.current = null;
+    speechBufferRef.current = "";
+    speechQueueRef.current = [];
+    speechDrainRef.current = null;
+    try { playbackSourceRef.current?.stop(); } catch { /* already stopped */ }
+    playbackSourceRef.current = null;
+    mouthLevelRef.current = 0;
+    setIsSpeaking(false);
+  }, []);
+
+  function endVoiceCall() {
+    voiceCallActiveRef.current = false;
+    voiceCallMutedRef.current = false;
+    realtimeAsrRef.current?.cancel();
+    realtimeAsrRef.current = null;
+    setVoiceCallMuted(false);
+    voiceCallGenerationRef.current += 1;
+    stopSpeaking();
+    setVoiceCallPhase("idle");
+    setVoiceCallNotice("");
+    setActivePanel("home");
+  }
+
+  function startVoiceCall() {
+    if (status !== "可以使用" || !voiceHealth.asr || !voiceHealth.tts || busy || voiceState !== "idle") return;
+    prepareSpeechPlayback();
+    stopSpeaking();
+    realtimeAsrRef.current?.cancel();
+    realtimeAsrRef.current = null;
+    voiceCallActiveRef.current = true;
+    voiceCallMutedRef.current = false;
+    setVoiceCallMuted(false);
+    voiceCallGenerationRef.current += 1;
+    ttsEnabledRef.current = true;
+    setTtsEnabled(true);
+    setVoiceCallNotice("直接说话即可，说完稍停会自动发送。您可以随时结束。");
+    setVoiceCallPhase("listening");
+    setActivePanel("voiceCall");
+  }
+
+  async function sendVoiceCallTurn(wav: Blob) {
+    if (!voiceCallActiveRef.current || voiceCallMutedRef.current) return;
+    const generation = voiceCallGenerationRef.current;
+    const realtime = realtimeAsrRef.current;
+    realtimeAsrRef.current = null;
+    setVoiceCallPhase("processing");
+    setVoiceCallNotice("正在听懂您说的话…");
+    try {
+      if (realtime) {
+        let transcript = "";
+        try { transcript = (await realtime.finish()).trim(); }
+        catch { /* Fall back to the existing complete-WAV route. */ }
+        if (!voiceCallActiveRef.current || voiceCallMutedRef.current || generation !== voiceCallGenerationRef.current) return;
+        if (transcript) {
+          if (!sendChatText(transcript)) throw new Error("连接暂不可用，请结束后重新连接");
+          setVoiceCallNotice("已经收到，正在回答您…");
+          return;
+        }
+      }
+      const response = await fetch(`${API_BASE}/speech/transcribe`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${tokenRef.current}`, "Content-Type": "audio/wav" },
+        body: wav
+      });
+      const result = await response.json() as { text?: string; detail?: string };
+      if (!voiceCallActiveRef.current || voiceCallMutedRef.current || generation !== voiceCallGenerationRef.current) return;
+      if (!response.ok) throw new Error(result.detail ?? "这次没听清，请再说一次");
+      const transcript = result.text?.trim() ?? "";
+      if (!transcript) throw new Error("这次没听清，请再说一次");
+      if (!sendChatText(transcript)) throw new Error("连接暂不可用，请结束后重新连接");
+      setVoiceCallNotice("已经收到，正在回答您…");
+    } catch (error) {
+      realtime?.cancel();
+      if (!voiceCallActiveRef.current || generation !== voiceCallGenerationRef.current) return;
+      setVoiceCallNotice(error instanceof Error ? error.message : "语音识别失败，请再试一次");
+      setVoiceCallPhase(socketRef.current?.readyState === WebSocket.OPEN ? "listening" : "error");
+    }
+  }
+
+  function voiceCallError(message: string) {
+    if (!voiceCallActiveRef.current) return;
+    realtimeAsrRef.current?.cancel();
+    realtimeAsrRef.current = null;
+    setVoiceCallNotice(message);
+    setVoiceCallPhase("error");
+  }
+
+  function toggleVoiceCallMute() {
+    const next = !voiceCallMutedRef.current;
+    voiceCallMutedRef.current = next;
+    setVoiceCallMuted(next);
+    if (next) {
+      realtimeAsrRef.current?.cancel();
+      realtimeAsrRef.current = null;
+    }
+    if (next && (voiceCallPhase === "listening" || voiceCallPhase === "hearing")) {
+      setVoiceCallPhase("muted");
+      setVoiceCallNotice("麦克风已暂停，不会发送这一段声音");
+    } else if (!next && voiceCallPhase === "muted") {
+      setVoiceCallPhase("listening");
+      setVoiceCallNotice("我在听，请继续说…");
+    }
+  }
 
   async function stopAndTranscribe() {
     const capture = voiceCaptureRef.current;
     if (!capture) return;
     voiceCaptureRef.current = null;
+    const realtime = realtimeAsrRef.current;
+    realtimeAsrRef.current = null;
     if (voiceTimerRef.current !== null) window.clearTimeout(voiceTimerRef.current);
     voiceTimerRef.current = null;
     setVoiceState("transcribing");
@@ -251,6 +475,16 @@ export default function ElderCompanionPage() {
     try {
       const wav = await stopVoiceCapture(capture);
       if (wav.size <= 44) throw new Error("没有录到声音");
+      if (realtime) {
+        let transcript = "";
+        try { transcript = (await realtime.finish()).trim(); }
+        catch { /* Fall back to the complete WAV when realtime ASR fails. */ }
+        if (transcript) {
+          if (!sendChatText(transcript)) throw new Error("连接暂不可用，这次语音没有发送，请重试");
+          setVoiceNotice("已发送，遥遥正在回复…");
+          return;
+        }
+      }
       const response = await fetch(`${API_BASE}/speech/transcribe`, {
         method: "POST",
         headers: { Authorization: `Bearer ${tokenRef.current}`, "Content-Type": "audio/wav" },
@@ -260,32 +494,106 @@ export default function ElderCompanionPage() {
       if (!response.ok) throw new Error(result.detail ?? "语音识别失败");
       const transcript = result.text?.trim() ?? "";
       if (!transcript) throw new Error("这次没有听清，请再说一次");
-      setInput((current) => current.trim() ? `${current.trim()} ${transcript}` : transcript);
-      setVoiceNotice(`已识别：${transcript}`);
+      if (!sendChatText(transcript)) throw new Error("连接暂不可用，这次语音没有发送，请重试");
+      setVoiceNotice("已发送，遥遥正在回复…");
     } catch (error) {
+      realtime?.cancel();
       setVoiceNotice(error instanceof Error ? error.message : "语音识别失败，请再试一次");
     } finally {
       setVoiceState("idle");
     }
   }
 
-  async function toggleVoiceCapture() {
-    if (voiceState === "recording") {
-      await stopAndTranscribe();
-      return;
-    }
-    if (voiceState !== "idle" || busy || !voiceHealth.asr) return;
+  async function beginVoiceCapture() {
+    if (voicePressActiveRef.current || voiceState !== "idle" || busy || status !== "可以使用" || !voiceHealth.asr) return;
+    voicePressActiveRef.current = true;
+    setVoiceState("recording");
+    setVoiceNotice("正在听，松手后立即发送；移出按钮可取消");
     try {
       prepareSpeechPlayback();
-      playbackSourceRef.current?.stop();
-      setIsSpeaking(false);
-      voiceCaptureRef.current = await startVoiceCapture();
-      setVoiceState("recording");
-      setVoiceNotice("正在听，说完后再按一下");
-      voiceTimerRef.current = window.setTimeout(() => { void stopAndTranscribe(); }, 45_000);
+      stopSpeaking();
+      if (voiceHealthRef.current.realtimeAsr) realtimeAsrRef.current = startRealtimeAsr(API_ORIGIN, tokenRef.current);
+      const capture = await startVoiceCapture((samples, sampleRate) => realtimeAsrRef.current?.push(samples, sampleRate));
+      if (!voicePressActiveRef.current) {
+        stopVoiceCaptureWithoutSaving(capture);
+        realtimeAsrRef.current?.cancel();
+        realtimeAsrRef.current = null;
+        return;
+      }
+      voiceCaptureRef.current = capture;
+      voiceCaptureStartedAtRef.current = performance.now();
+      voiceTimerRef.current = window.setTimeout(() => {
+        voicePressActiveRef.current = false;
+        void stopAndTranscribe();
+      }, 45_000);
     } catch (error) {
+      realtimeAsrRef.current?.cancel();
+      realtimeAsrRef.current = null;
+      voicePressActiveRef.current = false;
+      setVoiceState("idle");
       setVoiceNotice(error instanceof Error ? error.message : "无法使用麦克风，请检查浏览器权限");
     }
+  }
+
+  function cancelVoiceCapture() {
+    if (!voicePressActiveRef.current) return;
+    voicePressActiveRef.current = false;
+    if (voiceTimerRef.current !== null) window.clearTimeout(voiceTimerRef.current);
+    voiceTimerRef.current = null;
+    const capture = voiceCaptureRef.current;
+    voiceCaptureRef.current = null;
+    realtimeAsrRef.current?.cancel();
+    realtimeAsrRef.current = null;
+    if (capture) stopVoiceCaptureWithoutSaving(capture);
+    setVoiceState("idle");
+    setVoiceNotice("已取消录音，没有发送");
+  }
+
+  function finishVoiceCapture() {
+    if (!voicePressActiveRef.current) return;
+    if (!voiceCaptureRef.current || performance.now() - voiceCaptureStartedAtRef.current < 250) {
+      cancelVoiceCapture();
+      setVoiceNotice("请按住说话，松手后会立即发送");
+      return;
+    }
+    voicePressActiveRef.current = false;
+    void stopAndTranscribe();
+  }
+
+  function toggleAccessibleVoiceCapture() {
+    if (voicePressActiveRef.current) finishVoiceCapture();
+    else void beginVoiceCapture();
+  }
+
+  function onVoicePointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (event.button !== 0 || !event.isPrimary) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    void beginVoiceCapture();
+  }
+
+  function onVoicePointerUp(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    const bounds = event.currentTarget.getBoundingClientRect();
+    if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) cancelVoiceCapture();
+    else finishVoiceCapture();
+  }
+
+  function onVoiceKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>) {
+    if ((event.key !== " " && event.key !== "Enter") || event.repeat) return;
+    event.preventDefault();
+    void beginVoiceCapture();
+  }
+
+  function onVoiceKeyUp(event: ReactKeyboardEvent<HTMLButtonElement>) {
+    if (event.key !== " " && event.key !== "Enter") return;
+    event.preventDefault();
+    lastVoiceKeyUpAtRef.current = performance.now();
+    finishVoiceCapture();
+  }
+
+  function onVoiceClick(event: ReactMouseEvent<HTMLButtonElement>) {
+    // Screen-reader activation fires click without pointer/key events.
+    if (event.detail === 0 && performance.now() - lastVoiceKeyUpAtRef.current > 400) toggleAccessibleVoiceCapture();
   }
 
   useEffect(() => {
@@ -309,12 +617,16 @@ export default function ElderCompanionPage() {
   const selectedPersona = personas.find((item) => item.id === selectedPersonaId) ?? DEFAULT_PERSONA;
 
   function logout() {
+    voiceCallActiveRef.current = false;
+    voiceCallGenerationRef.current += 1;
+    realtimeAsrRef.current?.cancel();
+    realtimeAsrRef.current = null;
     socketRef.current?.close();
     if (voiceCaptureRef.current) {
       stopVoiceCaptureWithoutSaving(voiceCaptureRef.current);
       voiceCaptureRef.current = null;
     }
-    playbackSourceRef.current?.stop();
+    stopSpeaking();
     sessionStorage.removeItem("hearttrace.elder.session");
     setAccessToken("");
     tokenRef.current = "";
@@ -457,6 +769,17 @@ export default function ElderCompanionPage() {
     if (!consentMode || !accessToken) return;
     let cancelled = false;
     let socket: WebSocket | null = null;
+    let retryTimer: number | null = null;
+    const retryLater = () => {
+      if (cancelled || retryTimer !== null) return;
+      retryTimer = window.setTimeout(() => {
+        retryTimer = null;
+        if (!cancelled) {
+          setStatus("正在连接");
+          setConnectionAttempt((value) => value + 1);
+        }
+      }, 5000);
+    };
 
     async function connect() {
       try {
@@ -512,16 +835,24 @@ export default function ElderCompanionPage() {
         socket.onmessage = (event) => {
           const update = JSON.parse(event.data) as ServerEvent;
           if (update.type === "ready") {
-            setStatus("可以使用");
+            const modelReady = update.modelReady !== false;
+            setStatus(modelReady ? "可以使用" : "模型未配置");
+            if (voiceCallActiveRef.current && !modelReady) {
+              setVoiceCallPhase("error");
+              setVoiceCallNotice("聊天模型还没有配置，语音对话暂不可用");
+            }
             void Promise.allSettled([loadWeather(), loadNews()]);
             const pending = pendingMessageRef.current;
-            if (pending && socket?.readyState === WebSocket.OPEN) {
+            if (modelReady && pending && socket?.readyState === WebSocket.OPEN) {
               pendingMessageRef.current = "";
               hasSentMessageRef.current = true;
               setMessages((current) => [...current, { id: crypto.randomUUID(), role: "user", content: pending, at: new Date() }]);
               setBusy(true);
               socket.send(JSON.stringify({ type: "message", text: pending, knowledge: relevantKnowledge(selectedPersona, pending) }));
             }
+          } else if (update.type === "meta") {
+            if (update.model === "local-model-unconfigured") setStatus("模型未配置");
+            else if (update.model === "local-network-fallback") setStatus("模型暂时不可用");
           } else if (update.type === "progress") {
             const labels: Record<string, string> = {
               time: "正在读取时间",
@@ -534,6 +865,7 @@ export default function ElderCompanionPage() {
             if (update.kind === "news") setNews((update.data as { items: NewsItem[] }).items ?? []);
           } else if (update.type === "delta" && update.text) {
             assistantTextRef.current += update.text;
+            void queueSpokenText(update.text);
             let assistantId = assistantIdRef.current;
             if (!assistantId) {
               assistantId = crypto.randomUUID();
@@ -548,39 +880,69 @@ export default function ElderCompanionPage() {
             assistantIdRef.current = null;
             setBusy(false);
             setProgress(`${selectedPersona.name}正在回复`);
-            if (spokenReply) void speakAssistantReply(spokenReply);
+            const playback = (async () => {
+              if (spokenReply) await queueSpokenText("", true);
+              while (speechQueueRef.current.length || speechDrainRef.current) await drainSpeechQueue();
+            })();
+            if (voiceCallActiveRef.current) {
+              const generation = voiceCallGenerationRef.current;
+              setVoiceCallPhase("speaking");
+              setVoiceCallNotice("遥遥正在回答；说完后会继续听您说");
+              void playback.finally(() => {
+                if (voiceCallActiveRef.current && generation === voiceCallGenerationRef.current) {
+                  setVoiceCallPhase(voiceCallMutedRef.current ? "muted" : "listening");
+                  setVoiceCallNotice(voiceCallMutedRef.current ? "麦克风已暂停" : "我在听，请继续说…");
+                }
+              });
+            }
           } else if (update.type === "error") {
+            stopSpeaking();
             setMessages((current) => [...current, { id: crypto.randomUUID(), role: "assistant", content: update.message ?? "刚才没有接住，请再说一次。", at: new Date() }]);
             assistantIdRef.current = null;
             assistantTextRef.current = "";
             setBusy(false);
+            if (voiceCallActiveRef.current) {
+              setVoiceCallNotice("这次没能回答，您可以再说一次");
+              setVoiceCallPhase(voiceCallMutedRef.current ? "muted" : "listening");
+            }
           }
         };
         socket.onclose = (event) => {
           if (!cancelled) {
+            stopSpeaking();
             if (event.code === 4401) {
               sessionStorage.removeItem("hearttrace.elder.session");
               setAccessToken("");
               router.replace("/account");
+              return;
             }
             setStatus("暂时离线");
+            if (voiceCallActiveRef.current) {
+              setVoiceCallPhase("error");
+              setVoiceCallNotice("语音连接中断，请结束后重新开启");
+            }
             setBusy(false);
             assistantIdRef.current = null;
             assistantTextRef.current = "";
+            retryLater();
           }
         };
         socket.onerror = () => setStatus("连接不稳");
       } catch (error) {
-        if (!cancelled) setStatus(error instanceof Error ? error.message : "暂时离线");
+        if (!cancelled) {
+          setStatus(error instanceof TypeError ? "服务未启动" : error instanceof Error ? error.message : "暂时离线");
+          retryLater();
+        }
       }
     }
 
     void connect();
     return () => {
       cancelled = true;
+      if (retryTimer !== null) window.clearTimeout(retryTimer);
       socket?.close();
     };
-  }, [accessToken, consentMode, connectionAttempt, loadNews, loadWeather, router, selectedPersona, speakAssistantReply]);
+  }, [accessToken, consentMode, connectionAttempt, drainSpeechQueue, loadNews, loadWeather, queueSpokenText, router, selectedPersona, stopSpeaking]);
 
   function restartWithPersona(personaId: string, pendingMessage = "", profileOverride?: Persona) {
     socketRef.current?.close();
@@ -598,10 +960,10 @@ export default function ElderCompanionPage() {
     setConnectionAttempt((value) => value + 1);
   }
 
-  function sendMessage(event: FormEvent) {
-    event.preventDefault();
-    const text = input.trim();
-    if (!text || busy || socketRef.current?.readyState !== WebSocket.OPEN) return;
+  function sendChatText(rawText: string): boolean {
+    const text = rawText.trim();
+    const socket = socketRef.current;
+    if (!text || busy || status !== "可以使用" || socket?.readyState !== WebSocket.OPEN) return false;
     if (autoPersona && !hasSentMessageRef.current) {
       const ranked = personas
         .map((persona) => ({
@@ -611,21 +973,30 @@ export default function ElderCompanionPage() {
         .filter(({ score }) => score > 0)
         .sort((left, right) => right.score - left.score);
       if (ranked.length && ranked[0].persona.id !== selectedPersona.id && (ranked.length === 1 || ranked[0].score > ranked[1].score)) {
-        setInput("");
         restartWithPersona(ranked[0].persona.id, text);
-        return;
+        return true;
       }
     }
     prepareSpeechPlayback();
-    playbackSourceRef.current?.stop();
-    setIsSpeaking(false);
+    stopSpeaking();
+    try {
+      socket.send(JSON.stringify({ type: "message", text, knowledge: relevantKnowledge(selectedPersona, text) }));
+    } catch {
+      setStatus("连接不稳");
+      return false;
+    }
     setMessages((current) => [...current, { id: crypto.randomUUID(), role: "user", content: text, at: new Date() }]);
-    setInput("");
     setBusy(true);
     hasSentMessageRef.current = true;
     assistantIdRef.current = null;
     assistantTextRef.current = "";
-    socketRef.current.send(JSON.stringify({ type: "message", text, knowledge: relevantKnowledge(selectedPersona, text) }));
+    return true;
+  }
+
+  function sendMessage(event: FormEvent) {
+    event.preventDefault();
+    if (voiceState !== "idle") return;
+    if (sendChatText(input)) setInput("");
   }
 
   function savePersona(event: FormEvent) {
@@ -700,6 +1071,10 @@ export default function ElderCompanionPage() {
       sessionIdRef.current = "";
     }
     socketRef.current?.close();
+    voiceCallActiveRef.current = false;
+    voiceCallGenerationRef.current += 1;
+    stopSpeaking();
+    setVoiceCallPhase("idle");
     socketRef.current = null;
     assistantIdRef.current = null;
     assistantTextRef.current = "";
@@ -721,7 +1096,7 @@ export default function ElderCompanionPage() {
   const latestAssistantMessage = [...messages].reverse().find((message) => message.role === "assistant");
   const companionVisualState: CompanionVisualState = emergencyState !== "idle"
     ? "alert"
-    : status === "暂时离线" || status === "连接不稳"
+    : connectionNeedsAttention(status)
       ? "offline"
       : status === "正在连接"
         ? "thinking"
@@ -732,6 +1107,14 @@ export default function ElderCompanionPage() {
             : busy
           ? latestMessage?.role === "assistant" ? "speaking" : "thinking"
           : activePanel === "chat" ? "listening" : "idle";
+  const mascotMood: MascotMood = companionVisualState === "listening" ? "listen"
+    : companionVisualState === "speaking" ? "talk"
+    : companionVisualState === "thinking" ? "think"
+    : companionVisualState === "alert" ? "alert"
+    : companionVisualState === "offline" ? "offline"
+    : companionIdleAction === "wave" ? "hello"
+    : companionIdleAction === "bounce" || companionIdleAction === "sparkle" ? "happy"
+    : companionIdleAction === "peek" ? "listen" : "idle";
 
   if (!accessToken) return <main className="consent-shell">正在确认登录状态…</main>;
 
@@ -766,17 +1149,17 @@ export default function ElderCompanionPage() {
   return (
     <main className="app-shell">
       <header className="topbar">
-        <button className="brand" type="button" onClick={() => setActivePanel("home")}>{selectedPersona.name}</button>
+        <button className="brand" type="button" onClick={() => { if (voiceCallActiveRef.current) endVoiceCall(); else setActivePanel("home"); }}>{selectedPersona.name}</button>
         <p className="welcome">{elderName}，{dayPeriod ? `${dayPeriod}好` : "您好"}</p>
         <div className="service-state">
           <span>{status}</span>
           <small>{consentMode === "care" ? "关怀摘要已开启" : "本次对话不保存"}</small>
-          {(status === "暂时离线" || status === "连接不稳") && <button type="button" onClick={() => { setStatus("正在连接"); setConnectionAttempt((value) => value + 1); }}>重新连接</button>}
+          {connectionNeedsAttention(status) && <button type="button" onClick={() => { setStatus("正在连接"); setConnectionAttempt((value) => value + 1); }}>重新连接</button>}
           <details className="session-menu">
             <summary>账户与隐私</summary>
             <div>
               <button type="button" onClick={() => { void resetConversationConsent(); }}>停止保存与分析 / 重新选择</button>
-              <Link href="/companion-3d">角色外观方案</Link>
+              <Link href="/companion-3d/mascot-preview">精灵造型与表情预览</Link>
               <Link href="/account/security">修改密码</Link>
               <button type="button" onClick={logout}>退出账号</button>
             </div>
@@ -813,56 +1196,51 @@ export default function ElderCompanionPage() {
                 event.currentTarget.style.setProperty("--look-x", "0px");
                 event.currentTarget.style.setProperty("--look-y", "0px");
               }}
-              aria-label={`${selectedPersona.name}，${COMPANION_STATE_LABELS[companionVisualState]}，点击和他互动`}
+              aria-label={`${mascotKind === "moss" ? "小芽" : "小云"}陪伴精灵，${status === "模型未配置" ? "聊天待配置" : COMPANION_STATE_LABELS[companionVisualState]}，点击打招呼`}
             >
               <span className="lobby-character-ring" aria-hidden="true" />
               <span className="lobby-character-body" aria-hidden="true">
-                <Image src="/companion/yaoyao-stage-v2.png" width={1024} height={1536} sizes="(max-width: 760px) 54vw, 380px" alt="" priority />
+                <Mascot3D kind={mascotKind} mood={mascotMood} mouthLevelRef={mouthLevelRef} transparent lobby />
               </span>
               {companionReaction && <span className="lobby-character-reaction" aria-live="polite">{companionReaction}</span>}
               <span className="lobby-character-sparkles" aria-hidden="true"><i /> <i /> <i /></span>
-              <span className="lobby-character-name"><strong>{selectedPersona.name}</strong><small>{COMPANION_STATE_LABELS[companionVisualState]}</small></span>
+              <span className="lobby-character-name"><strong>{mascotKind === "moss" ? "小芽" : "小云"} · {selectedPersona.name}</strong><small>{status === "模型未配置" ? "聊天待配置" : COMPANION_STATE_LABELS[companionVisualState]}</small></span>
             </button>
 
             <section className="lobby-speech" aria-live="polite" aria-atomic="true">
-              <span>{busy ? progress : `${selectedPersona.name}想对您说`}</span>
-              <p>{busy && latestMessage?.role !== "assistant" ? "我听到了，正在认真想怎么回答您。" : latestAssistantMessage?.content ?? "我在呢，您今天想聊点什么？"}</p>
+              <span>{connectionNeedsAttention(status) ? "陪伴聊天暂不可用" : busy ? progress : `${selectedPersona.name}想对您说`}</span>
+              <p>{connectionNeedsAttention(status) ? status === "模型未配置" ? "聊天模型还没有配置，请联系管理员；紧急情况仍可使用呼救功能。" : "正在尝试重新连接。其他不依赖聊天的功能仍可使用。" : busy && latestMessage?.role !== "assistant" ? "我听到了，正在认真想怎么回答您。" : latestAssistantMessage?.content ?? "我在呢，您今天想聊点什么？"}</p>
               <button type="button" onClick={() => setActivePanel("chat")}>查看对话记录</button>
             </section>
 
             <nav className="lobby-actions" aria-label="常用功能">
-              <button type="button" onClick={() => setActivePanel("checkin")}><span>每日自述</span><small>记录今天的状态</small></button>
-              <Link href="/screening"><span>关怀小测</span><small>本人愿意时再做</small></Link>
-              <button type="button" onClick={() => setActivePanel("news")}><span>听听资讯</span><small>看看今天的新鲜事</small></button>
-              <button type="button" aria-expanded={personaManagerOpen} onClick={() => setPersonaManagerOpen((open) => !open)}><span>陪伴设置</span><small>选择不同说话风格</small></button>
+              <button type="button" aria-label="每日自述，记录今天的状态" onClick={() => setActivePanel("checkin")}><span className="lobby-action-mark" aria-hidden="true">记</span><span>每日自述</span></button>
+              <Link href="/screening" aria-label="关怀小测，本人愿意时再做"><span className="lobby-action-mark" aria-hidden="true">测</span><span>关怀小测</span></Link>
+              <button type="button" aria-label="听听资讯，看看今天的新鲜事" onClick={() => setActivePanel("news")}><span className="lobby-action-mark" aria-hidden="true">听</span><span>听听资讯</span></button>
+              <button type="button" aria-label="陪伴设置，选择不同说话风格" aria-expanded={personaManagerOpen} onClick={() => setPersonaManagerOpen((open) => !open)}><span className="lobby-action-mark" aria-hidden="true">伴</span><span>陪伴设置</span></button>
             </nav>
 
             <button className="lobby-emergency" type="button" disabled={emergencyState === "submitting" || emergencyState === "sent"} onClick={() => setEmergencyState("confirming")}>
               {emergencyState === "sent" ? "求助已发出" : "紧急呼救"}
             </button>
 
-            <form className="lobby-composer" onSubmit={sendMessage}>
-              <label htmlFor="lobby-message">现在想和{selectedPersona.name}说什么？</label>
-              <div>
-                <input id="lobby-message" value={input} onChange={(event) => setInput(event.target.value)} maxLength={8000} placeholder="点这里输入一句话" disabled={busy} />
-                <button
-                  className={`voice-button${voiceState === "recording" ? " recording" : ""}`}
-                  type="button"
-                  onClick={() => { void toggleVoiceCapture(); }}
-                  disabled={busy || voiceState === "transcribing" || !voiceHealth.asr}
-                >
-                  {voiceState === "recording" ? "说完了" : voiceState === "transcribing" ? "识别中…" : "按一下说话"}
-                </button>
-                <button type="submit" disabled={busy || status !== "可以使用"}>{busy ? "正在听" : "说给遥遥听"}</button>
-              </div>
-              <div className="voice-feedback" aria-live="polite">
-                <span>{voiceNotice}</span>
-                <label>
-                  <input type="checkbox" checked={ttsEnabled} disabled={!voiceHealth.tts} onChange={(event) => setTtsEnabled(event.target.checked)} />
-                  自动读出回复
-                </label>
-              </div>
-            </form>
+            <div className="lobby-voice-control">
+              <button
+                className={`voice-button${voiceState === "recording" ? " recording" : ""}`}
+                type="button"
+                onPointerDown={onVoicePointerDown}
+                onPointerUp={onVoicePointerUp}
+                onPointerCancel={cancelVoiceCapture}
+                onKeyDown={onVoiceKeyDown}
+                onKeyUp={onVoiceKeyUp}
+                onClick={onVoiceClick}
+                disabled={voiceState === "transcribing" || (voiceState !== "recording" && (busy || status !== "可以使用" || !voiceHealth.asr))}
+                aria-describedby="lobby-voice-hint"
+              >
+                {voiceState === "recording" ? "松开发送" : voiceState === "transcribing" ? "识别并发送中…" : "按住说话"}
+              </button>
+              <p id="lobby-voice-hint" role="status">{voiceNotice === "语音识别和回复播报已就绪" ? "松手自动发送 · 语音由阿里云识别" : voiceNotice}</p>
+            </div>
           </div>
 
           {personaManagerOpen && (
@@ -928,15 +1306,49 @@ export default function ElderCompanionPage() {
       {activePanel !== "home" && (
         <section className={`panel-view panel-${activePanel}`}>
           <header className="panel-header">
-            <button className="back-button" type="button" onClick={() => setActivePanel("home")}>返回首页</button>
-            <h1>{activePanel === "chat" ? `和${selectedPersona.name}聊聊` : activePanel === "weather" ? "今日天气" : activePanel === "checkin" ? "每日自述" : "最新资讯"}</h1>
+            <button className="back-button" type="button" onClick={() => { if (voiceCallActiveRef.current) endVoiceCall(); else setActivePanel("home"); }}>返回首页</button>
+            <h1>{activePanel === "voiceCall" ? `与${selectedPersona.name}语音对话` : activePanel === "chat" ? `和${selectedPersona.name}聊聊` : activePanel === "weather" ? "今日天气" : activePanel === "checkin" ? "每日自述" : "最新资讯"}</h1>
           </header>
+
+          {activePanel === "voiceCall" && (
+            <div className="voice-call-layout">
+              {(voiceCallPhase === "listening" || voiceCallPhase === "hearing") && !voiceCallMuted && status === "可以使用" && (
+                <HandsFreeCallCapture
+                  onSpeechStart={(preRoll, sampleRate) => {
+                    setVoiceCallPhase("hearing");
+                    setVoiceCallNotice("听到您说话了，请继续…");
+                    if (voiceHealthRef.current.realtimeAsr) {
+                      realtimeAsrRef.current?.cancel();
+                      realtimeAsrRef.current = startRealtimeAsr(API_ORIGIN, tokenRef.current);
+                      for (const samples of preRoll) realtimeAsrRef.current.push(samples, sampleRate);
+                    }
+                  }}
+                  onAudioChunk={(samples, sampleRate) => realtimeAsrRef.current?.push(samples, sampleRate)}
+                  onTurn={(wav) => { void sendVoiceCallTurn(wav); }}
+                  onError={voiceCallError}
+                />
+              )}
+              <div className={`voice-call-orb voice-call-${voiceCallPhase}`} aria-hidden="true">
+                <Mascot3D kind={mascotKind} mood={voiceCallPhase === "speaking" ? "talk" : voiceCallPhase === "processing" ? "think" : voiceCallPhase === "error" ? "offline" : "listen"} mouthLevelRef={mouthLevelRef} transparent />
+              </div>
+              <div className="voice-call-copy" role="status" aria-live="polite">
+                <strong>{voiceCallPhase === "listening" ? "我在听" : voiceCallPhase === "hearing" ? "请继续说" : voiceCallPhase === "processing" ? "正在想怎么回答" : voiceCallPhase === "speaking" ? "遥遥正在说话" : voiceCallPhase === "muted" ? "麦克风已暂停" : "语音暂不可用"}</strong>
+                <p>{voiceCallNotice}</p>
+              </div>
+              <div className="voice-call-controls">
+                {voiceCallPhase === "error" ? <button type="button" onClick={() => { if (status === "可以使用") { setVoiceCallPhase("listening"); setVoiceCallNotice("我在听，请继续说…"); } }} disabled={status !== "可以使用"}>重新收音</button> : <button type="button" onClick={toggleVoiceCallMute} aria-pressed={voiceCallMuted}>{voiceCallMuted ? "恢复麦克风" : "暂停麦克风"}</button>}
+                <button className="voice-call-end" type="button" onClick={endVoiceCall}>结束通话</button>
+              </div>
+              <p className="voice-call-privacy">说完稍停会自动发送；遥遥回答时暂停收音。录音交由阿里云识别，保存与分析遵循您进入时的选择。</p>
+            </div>
+          )}
 
           {activePanel === "chat" && (
             <div className="chat-layout">
               <div className="chat-companion-bar">
-                <CompanionAvatar name={selectedPersona.name} state={companionVisualState} compact />
-                <p>您慢慢说，{selectedPersona.name}在听。</p>
+                <CompanionAvatar name={selectedPersona.name} state={companionVisualState} kind={mascotKind} status={status} mouthLevelRef={mouthLevelRef} compact />
+                <p>{connectionNeedsAttention(status) ? status === "模型未配置" ? "聊天模型还没有配置，请联系管理员。" : "连接暂不可用，正在尝试恢复。" : `您慢慢说，${selectedPersona.name}在听。`}</p>
+                <button className="chat-call-trigger" type="button" onClick={startVoiceCall} disabled={busy || status !== "可以使用" || !voiceHealth.asr || !voiceHealth.tts || voiceState !== "idle"}>开启连续语音对话</button>
               </div>
               <div className="messages" aria-live="polite">
                 {messages.map((message) => (
@@ -967,11 +1379,17 @@ export default function ElderCompanionPage() {
                 <button
                   className={`voice-button${voiceState === "recording" ? " recording" : ""}`}
                   type="button"
-                  onClick={() => { void toggleVoiceCapture(); }}
-                  disabled={busy || voiceState === "transcribing" || !voiceHealth.asr}
-                >{voiceState === "recording" ? "说完了" : voiceState === "transcribing" ? "识别中…" : "语音输入"}</button>
-                <button type="submit" disabled={busy || status !== "可以使用"}>发送</button>
+                  onPointerDown={onVoicePointerDown}
+                  onPointerUp={onVoicePointerUp}
+                  onPointerCancel={cancelVoiceCapture}
+                  onKeyDown={onVoiceKeyDown}
+                  onKeyUp={onVoiceKeyUp}
+                  onClick={onVoiceClick}
+                  disabled={voiceState === "transcribing" || (voiceState !== "recording" && (busy || status !== "可以使用" || !voiceHealth.asr))}
+                >{voiceState === "recording" ? "松开发送" : voiceState === "transcribing" ? "识别并发送中…" : "按住说话"}</button>
+                <button type="submit" disabled={busy || voiceState !== "idle" || status !== "可以使用"}>发送</button>
                 <p className="composer-voice-status" aria-live="polite">{voiceNotice}</p>
+                <p className="voice-cloud-notice">按住说话，松手立即发送；移出按钮可取消。录音交由阿里云处理。</p>
               </form>
             </div>
           )}
@@ -1052,13 +1470,13 @@ const COMPANION_STATE_LABELS: Record<CompanionVisualState, string> = {
   offline: "正在重新连接"
 };
 
-function CompanionAvatar({ name, state, compact = false }: { name: string; state: CompanionVisualState; compact?: boolean }) {
-  const label = COMPANION_STATE_LABELS[state];
+function CompanionAvatar({ name, state, kind, status, mouthLevelRef, compact = false }: { name: string; state: CompanionVisualState; kind: MascotKind; status: string; mouthLevelRef?: RefObject<number>; compact?: boolean }) {
+  const label = status === "模型未配置" ? "聊天待配置" : COMPANION_STATE_LABELS[state];
   return (
     <div className={`companion-avatar companion-${state}${compact ? " companion-compact" : ""}`} role="status" aria-live="polite" aria-atomic="true">
       <div className="companion-portrait" aria-hidden="true">
         <span className="companion-halo" />
-        <Image src="/companion/yaoyao-avatar-v1.png" width={246} height={256} sizes={compact ? "92px" : "190px"} alt="" priority />
+        <Mascot3D kind={kind} mood={state === "listening" ? "listen" : state === "speaking" ? "talk" : state === "thinking" ? "think" : state === "alert" ? "alert" : state === "offline" ? "offline" : "idle"} mouthLevelRef={mouthLevelRef} transparent />
         <span className="companion-wave companion-wave-one" />
         <span className="companion-wave companion-wave-two" />
         <span className="companion-wave companion-wave-three" />

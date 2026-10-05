@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     dashscope_api_key: str = ""
     dashscope_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     dashscope_companion_model: str = "qwen3.8-flash"
-    dashscope_companion_timeout_seconds: float = 8.0
+    dashscope_companion_timeout_seconds: float = 30.0
     companion_history_limit: int = 16
     companion_history_character_budget: int = 3200
     companion_max_tokens: int = 160
@@ -36,11 +36,18 @@ class Settings(BaseSettings):
     fish_speech_reference_id: str = "song_yusheng_square_4_denoised"
     fish_speech_sample_rate: int = 44100
     speech_service_api_key: str = ""
+    speech_provider: str = "dashscope"
+    speech_dashscope_api_key: str = ""
+    speech_dashscope_base_url: str = "https://dashscope.aliyuncs.com"
+    speech_asr_model: str = "qwen3-asr-flash"
+    speech_asr_realtime_model: str = "qwen3-asr-flash-realtime"
+    speech_tts_model: str = "qwen-audio-3.0-tts-flash"
+    speech_tts_voice: str = "longanfengyue"
     speech_request_timeout_seconds: float = 180.0
     speech_max_audio_bytes: int = 8_000_000
     speech_max_tts_characters: int = 800
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=(".env", ".env.speech"), extra="ignore")
 
 
 @lru_cache

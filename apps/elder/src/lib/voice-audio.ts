@@ -35,6 +35,17 @@ function resample(samples: Float32Array, fromRate: number, toRate: number): Floa
   return output;
 }
 
+export function encodePcm16Chunk(samples: Float32Array, sampleRate: number): ArrayBuffer {
+  const mono = resample(samples, sampleRate, TARGET_SAMPLE_RATE);
+  const bytes = new ArrayBuffer(mono.length * 2);
+  const view = new DataView(bytes);
+  for (let index = 0; index < mono.length; index += 1) {
+    const value = Math.max(-1, Math.min(1, mono[index]));
+    view.setInt16(index * 2, value < 0 ? value * 32768 : value * 32767, true);
+  }
+  return bytes;
+}
+
 function encodeWav(samples: Float32Array, sampleRate: number): Blob {
   const buffer = new ArrayBuffer(44 + samples.length * 2);
   const view = new DataView(buffer);
@@ -61,7 +72,7 @@ function encodeWav(samples: Float32Array, sampleRate: number): Blob {
   return new Blob([buffer], { type: "audio/wav" });
 }
 
-export async function startVoiceCapture(): Promise<VoiceCapture> {
+export async function startVoiceCapture(onSamples?: (samples: Float32Array, sampleRate: number) => void): Promise<VoiceCapture> {
   if (!navigator.mediaDevices?.getUserMedia) throw new Error("当前设备不支持麦克风录音");
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true }
@@ -73,7 +84,11 @@ export async function startVoiceCapture(): Promise<VoiceCapture> {
   const silentGain = context.createGain();
   silentGain.gain.value = 0;
   const capture: VoiceCapture = { context, stream, source, processor, silentGain, chunks: [] };
-  processor.onaudioprocess = (event) => capture.chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
+  processor.onaudioprocess = (event) => {
+    const samples = new Float32Array(event.inputBuffer.getChannelData(0));
+    capture.chunks.push(samples);
+    onSamples?.(samples, context.sampleRate);
+  };
   source.connect(processor);
   processor.connect(silentGain);
   silentGain.connect(context.destination);
@@ -100,29 +115,52 @@ export function stopVoiceCaptureWithoutSaving(capture: VoiceCapture): void {
   void capture.context.close();
 }
 
-export async function playPcmS16le(
+export async function playWavAudio(
   context: AudioContext,
   bytes: ArrayBuffer,
-  sampleRate: number,
-  onSource: (source: AudioBufferSourceNode | null) => void
+  onSource: (source: AudioBufferSourceNode | null) => void,
+  onMouthLevel: (level: number) => void,
+  shouldPlay: () => boolean = () => true
 ): Promise<void> {
-  if (bytes.byteLength < 2) throw new Error("语音内容为空");
+  if (bytes.byteLength < 44) throw new Error("语音内容为空");
   if (context.state === "suspended") await context.resume();
-  const evenLength = bytes.byteLength - (bytes.byteLength % 2);
-  const pcm = new DataView(bytes, 0, evenLength);
-  const samples = new Float32Array(evenLength / 2);
-  for (let index = 0; index < samples.length; index += 1) samples[index] = pcm.getInt16(index * 2, true) / 32768;
-  const audioBuffer = context.createBuffer(1, samples.length, sampleRate);
-  audioBuffer.copyToChannel(samples, 0);
+  // Fish Speech returns a WAV container, not headerless PCM. Let the browser
+  // decode its actual sample rate and channels before playback.
+  const audioBuffer = await context.decodeAudioData(bytes.slice(0));
+  if (!shouldPlay()) return;
   const source = context.createBufferSource();
   source.buffer = audioBuffer;
-  source.connect(context.destination);
+  const analyser = context.createAnalyser();
+  analyser.fftSize = 1024;
+  source.connect(analyser);
+  analyser.connect(context.destination);
+  const samples = new Float32Array(analyser.fftSize);
+  let frame = 0;
+  let smoothed = 0;
+  let ended = false;
+  const updateMouth = () => {
+    if (ended) return;
+    analyser.getFloatTimeDomainData(samples);
+    let power = 0;
+    for (const sample of samples) power += sample * sample;
+    const rms = Math.sqrt(power / samples.length);
+    const target = Math.max(0, Math.min(1, (rms - 0.012) * 7));
+    smoothed += (target - smoothed) * (target > smoothed ? 0.5 : 0.3);
+    onMouthLevel(smoothed);
+    frame = requestAnimationFrame(updateMouth);
+  };
   onSource(source);
   await new Promise<void>((resolve) => {
     source.onended = () => {
+      ended = true;
+      cancelAnimationFrame(frame);
+      onMouthLevel(0);
+      source.disconnect();
+      analyser.disconnect();
       onSource(null);
       resolve();
     };
     source.start();
+    updateMouth();
   });
 }

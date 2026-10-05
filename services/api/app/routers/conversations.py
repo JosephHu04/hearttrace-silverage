@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import secrets
 import time
 from collections.abc import Iterator
 
@@ -26,7 +27,7 @@ from app.services.analysis_pipeline import queue_conversation_analysis
 router = APIRouter(tags=["elder-conversations"])
 settings = get_settings()
 companion_client = CompanionClient(settings)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("uvicorn.error")
 
 
 def _persona_fingerprint(persona: ConversationPersona) -> str:
@@ -317,6 +318,7 @@ async def realtime_conversation(websocket: WebSocket) -> None:
                 "type": "ready",
                 "sessionId": session_id,
                 "model": settings.dashscope_companion_model,
+                "modelReady": bool(settings.dashscope_api_key.strip()),
                 "messageStorage": save_messages,
                 "persona": {"id": persona.id, "name": persona.name},
             }
@@ -357,6 +359,7 @@ async def realtime_conversation(websocket: WebSocket) -> None:
             ][:4]
 
             started = time.perf_counter()
+            trace_id = secrets.token_hex(6)
             previous_users = [item["content"] for item in reversed(history) if item["role"] == "user"]
             openings = [item["content"].splitlines()[0][:32] for item in reversed(history) if item["role"] == "assistant"]
             memory_context = derive_memory_context(
@@ -374,6 +377,7 @@ async def realtime_conversation(websocket: WebSocket) -> None:
             history.append({"role": "user", "content": message})
             history = history[-settings.companion_history_limit:]
             _persist_message(session_id, role="user", content=message, processing=plan.processing)
+            preparation_ms = round((time.perf_counter() - started) * 1000)
 
             kind = None if plan.direct_reply else detect_live_info_kind(message)
             if kind:
@@ -384,6 +388,9 @@ async def realtime_conversation(websocket: WebSocket) -> None:
 
             reply_parts: list[str] = []
             first_delta_ms: int | None = None
+            upstream_connect_ms: int | None = None
+            failure_kind: str | None = None
+            upstream_status: int | None = None
             model = "local-safety-router" if plan.direct_reply else "local-live-info" if live_info else settings.dashscope_companion_model
             try:
                 if plan.direct_reply or live_info:
@@ -393,6 +400,7 @@ async def realtime_conversation(websocket: WebSocket) -> None:
                     iterator = iter(("实时信息暂时没有取到，请稍后再试。",))
                 else:
                     model, iterator = await asyncio.to_thread(companion_client.stream_reply, history, plan.context)
+                    upstream_connect_ms = round((time.perf_counter() - started) * 1000) - preparation_ms
                 await websocket.send_json(
                     {
                         "type": "meta",
@@ -417,23 +425,42 @@ async def realtime_conversation(websocket: WebSocket) -> None:
                 if not reply:
                     raise RuntimeError("模型返回空回复")
             except (APIConnectionError, APITimeoutError, APIStatusError, RateLimitError, RuntimeError) as exc:
-                logger.warning("Companion generation degraded: %s", type(exc).__name__)
-                reply = _fallback(plan.care_mode)
-                model = "local-network-fallback"
+                failure_kind = type(exc).__name__
+                upstream_status = getattr(exc, "status_code", None)
+                logger.warning(
+                    "companion_failure trace=%s kind=%s upstream_status=%s elapsed_ms=%d",
+                    trace_id, failure_kind, upstream_status, round((time.perf_counter() - started) * 1000),
+                )
+                model_unconfigured = not settings.dashscope_api_key.strip()
+                reply = (
+                    "陪伴聊天模型尚未配置。请联系管理员完成配置后再试，紧急情况请直接使用呼救功能。"
+                    if model_unconfigured else _fallback(plan.care_mode)
+                )
+                model = "local-model-unconfigured" if model_unconfigured else "local-network-fallback"
                 first_delta_ms = round((time.perf_counter() - started) * 1000)
-                await websocket.send_json({"type": "meta", "model": model, "processing": "network_fallback"})
+                await websocket.send_json({"type": "meta", "model": model, "processing": "model_unconfigured" if model_unconfigured else "network_fallback"})
                 await websocket.send_json({"type": "delta", "text": reply})
 
             history.append({"role": "assistant", "content": reply})
             history = history[-settings.companion_history_limit:]
             _persist_message(session_id, role="assistant", content=reply, processing=plan.processing, model=model)
+            total_ms = round((time.perf_counter() - started) * 1000)
+            logger.info(
+                "companion_latency trace=%s model=%s preparation_ms=%d upstream_connect_ms=%s "
+                "first_delta_ms=%s total_ms=%d outcome=%s",
+                trace_id, model, preparation_ms, upstream_connect_ms, first_delta_ms,
+                total_ms, failure_kind or "ok",
+            )
             await websocket.send_json(
                 {
                     "type": "done",
                     "reply": reply,
                     "model": model,
+                    "traceId": trace_id,
+                    "preparationMs": preparation_ms,
+                    "upstreamConnectMs": upstream_connect_ms,
                     "firstDeltaMs": first_delta_ms,
-                    "totalMs": round((time.perf_counter() - started) * 1000),
+                    "totalMs": total_ms,
                 }
             )
     except WebSocketDisconnect:
