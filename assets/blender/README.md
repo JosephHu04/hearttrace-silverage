@@ -30,6 +30,7 @@ blender --background --python assets/blender/scripts/create_yaoyao_blockout.py -
 ## 正式骨骼候选管线
 
 - `scripts/inspect_rigged_base.py`：在引入第三方角色前自动渲染并输出网格、骨骼和尺寸审查结果。
+- `ASSET_ACCEPTANCE.md` 与 `scripts/check_character_asset.py`：正式角色的人工视觉门槛和自动技术门槛。当前动作样机不通过正式交付检查。
 - `scripts/prepare_xiaohe_rig_base.py`：将合法取得的身体、双丸子头和动作库合并到同一套 65 根 Humanoid 骨骼，并通过 NLA 多轨导出五段动作。
 - `CANDIDATE_AUDIT.md`：记录来源、许可、通过项、淘汰项和正式建模待办。
 - `candidates/`：本地可重复生成的大型工程候选目录，已排除在 Git 历史之外。

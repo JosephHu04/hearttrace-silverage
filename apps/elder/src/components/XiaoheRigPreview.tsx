@@ -176,17 +176,17 @@ export function XiaoheRigPreview({ action, onPlaying }: Props) {
       shadows
       aria-label="小禾骨骼候选模型动作验收"
     >
-      <color attach="background" args={["#18251f"]} />
-      <fog attach="fog" args={["#18251f", 9, 16]} />
-      <ambientLight intensity={0.55} />
-      <directionalLight position={[4, 7, 6]} intensity={1.45} castShadow color="#fff3df" />
-      <directionalLight position={[-4, 3, 4]} intensity={0.65} color="#a8e0c1" />
-      <pointLight position={[0, 4, -3]} intensity={0.55} color="#d8c7ff" />
+      <color attach="background" args={["#dfe9e2"]} />
+      <fog attach="fog" args={["#dfe9e2", 10, 18]} />
+      <ambientLight intensity={1.05} />
+      <directionalLight position={[4, 7, 6]} intensity={2.2} castShadow color="#fff5e6" />
+      <directionalLight position={[-4, 3, 4]} intensity={0.95} color="#d2f4e0" />
+      <pointLight position={[0, 4, -3]} intensity={0.8} color="#eee3ff" />
       <Suspense fallback={null}>
         <RigModel requestedAction={action} onPlaying={onPlaying} />
         <Environment preset="studio" environmentIntensity={0.22} />
       </Suspense>
-      <ContactShadows position={[0, -2.07, 0]} opacity={0.52} scale={7} blur={2.8} far={4.5} />
+      <ContactShadows position={[0, -2.07, 0]} opacity={0.34} scale={7} blur={2.8} far={4.5} />
       <OrbitControls
         makeDefault
         enablePan={false}
