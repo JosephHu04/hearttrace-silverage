@@ -55,7 +55,7 @@ export default function MascotPreviewPage() {
   return (
     <main className={styles.shell}>
       <header className={styles.topbar}>
-        <Link className={styles.brand} href="/companion-3d"><span>✦</span> 心迹银龄 <i>/</i> 精灵试镜室</Link>
+        <Link className={styles.brand} href="/"><span>✦</span> 心迹银龄 <i>/</i> 精灵试镜室</Link>
         <Link className={styles.back} href="/">返回老人端 ↗</Link>
       </header>
       <section className={styles.layout}>
