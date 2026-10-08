@@ -115,18 +115,14 @@ export function stopVoiceCaptureWithoutSaving(capture: VoiceCapture): void {
   void capture.context.close();
 }
 
-export async function playWavAudio(
+export async function playAudioBuffer(
   context: AudioContext,
-  bytes: ArrayBuffer,
+  audioBuffer: AudioBuffer,
   onSource: (source: AudioBufferSourceNode | null) => void,
   onMouthLevel: (level: number) => void,
   shouldPlay: () => boolean = () => true
 ): Promise<void> {
-  if (bytes.byteLength < 44) throw new Error("语音内容为空");
   if (context.state === "suspended") await context.resume();
-  // Fish Speech returns a WAV container, not headerless PCM. Let the browser
-  // decode its actual sample rate and channels before playback.
-  const audioBuffer = await context.decodeAudioData(bytes.slice(0));
   if (!shouldPlay()) return;
   const source = context.createBufferSource();
   source.buffer = audioBuffer;

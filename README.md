@@ -35,7 +35,7 @@ infra/              本地开发与部署配置
 3. 禁止提交 API 密钥、真实聊天、真实视频、真实联系方式或未授权样本。
 4. 紧急联络和防跌倒仅使用合成测试数据进行演示。
 
-硬件采购与终端验收规格见 [老人端触控终端与安全设备采购规格](docs/hardware-terminal-procurement.md)，视频联络的微信边界和推荐 RTC 路线见 [一键视频联络可行性](docs/video-call-feasibility.md)。
+硬件采购与终端验收规格见 [老人端触控终端与安全设备采购规格](docs/hardware-terminal-procurement.md)，视频联络的微信边界和推荐 RTC 路线见 [一键视频联络可行性](docs/video-call-feasibility.md)；已接入的前台家属语音通话见 [家属—老人实时语音通话](docs/family-voice-call.md)。
 
 ## 团队协作
 

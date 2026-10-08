@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, select
 
 from app.db.models import AuditLog, RiskAction, RiskEvent, User
-from app.dependencies import DbSession, RiskStaff
+from app.dependencies import AdminActor, DbSession, RiskStaff
 from app.schemas import (
     AuditListOut,
     AuditLogOut,
@@ -129,7 +129,7 @@ def risk_action(event_id: str, body: RiskActionRequest, db: DbSession, actor: Ri
 @router.get("/audit-logs", response_model=AuditListOut)
 def audit_logs(
     db: DbSession,
-    actor: RiskStaff,
+    actor: AdminActor,
     actor_id: Optional[str] = Query(default=None, alias="actorId", max_length=64),
     action: Optional[str] = Query(default=None, max_length=64),
     target_type: Optional[str] = Query(default=None, alias="targetType"),

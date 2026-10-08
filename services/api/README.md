@@ -25,7 +25,7 @@ OpenAPI 地址为 `http://localhost:8000/docs`，健康检查为 `GET /api/healt
 
 ## 老人端语音
 
-默认语音链路使用独立的阿里云百炼语音密钥：ASR 为 `qwen3-asr-flash`，TTS 为 `qwen-audio-3.0-tts-flash`（普通话音色 `longanfengyue`）。将 `SPEECH_DASHSCOPE_API_KEY` 仅配置在服务端 `.env.speech` 或部署环境变量中；聊天模型继续单独使用 `.env` 中的 `DASHSCOPE_API_KEY`。两个文件均被 Git 忽略。没有语音密钥时只保留打字聊天，不会回退到未配置的服务。
+默认语音链路使用独立的阿里云百炼语音密钥：ASR 为 `qwen3-asr-flash`，TTS 为 `qwen-audio-3.0-tts-flash`（清甜、较自然的年轻女声音色 `longanlingxi`，可用 `SPEECH_TTS_VOICE` 调整）。将 `SPEECH_DASHSCOPE_API_KEY` 仅配置在服务端 `.env.speech` 或部署环境变量中；聊天模型继续单独使用 `.env` 中的 `DASHSCOPE_API_KEY`。两个文件均被 Git 忽略。没有语音密钥时只保留打字聊天，不会回退到未配置的服务。
 
 - `GET /api/speech/health`：查看语音密钥配置状态（不是付费的实时推理健康探测）。
 - `WS /api/realtime/speech`：老人身份认证后，把 16 kHz 单声道 PCM16 小段音频经后端转送 `qwen3-asr-flash-realtime`；发送 `finish` 后仅返回最终识别文本。网页无法接触语音密钥，失败时回退到下方 WAV 接口。

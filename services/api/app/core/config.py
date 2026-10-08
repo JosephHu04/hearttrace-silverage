@@ -42,12 +42,15 @@ class Settings(BaseSettings):
     speech_asr_model: str = "qwen3-asr-flash"
     speech_asr_realtime_model: str = "qwen3-asr-flash-realtime"
     speech_tts_model: str = "qwen-audio-3.0-tts-flash"
-    speech_tts_voice: str = "longanfengyue"
+    speech_tts_voice: str = "longanlingxi"
     speech_request_timeout_seconds: float = 180.0
     speech_max_audio_bytes: int = 8_000_000
     speech_max_tts_characters: int = 800
+    livekit_url: str = ""
+    livekit_api_key: str = ""
+    livekit_api_secret: str = ""
 
-    model_config = SettingsConfigDict(env_file=(".env", ".env.speech"), extra="ignore")
+    model_config = SettingsConfigDict(env_file=(".env", ".env.speech", ".env.call"), extra="ignore")
 
 
 @lru_cache

@@ -151,7 +151,7 @@ GDS-15 按 0-8、9-11、12-15 分为一般、中度关注和高度关注；GAD-7
 
 管理端只可查看申请人、联系方式、关系和授权声明版本，不能读取明文密码或密码哈希。找回密码令牌必须由邮件或短信适配器发送；当前仓库已完成生成、哈希存储、过期与一次性消费机制，但不把令牌暴露给浏览器。
 
-申请中的老人姓名只用于人工比对，不能直接作为授权依据。管理员通过申请时必须提交系统内的 `elderId`；服务端同事务创建家属账号和 `family_elder_grants`。当前允许的授权范围仅为 `daily_summary` 与 `care_actions`，不提供聊天全文或设备视频范围。撤销后家属列表立即移除该老人，已有令牌再次访问也返回 403。
+申请中的老人姓名只用于人工比对，不能直接作为授权依据。管理员通过申请时必须提交系统内的 `elderId` 和身份、关系核验说明；服务端同事务创建家属账号和 `family_elder_grants`。当前允许的授权范围仅为 `daily_summary` 与 `care_actions`，不提供聊天全文或设备视频范围。撤销后家属列表立即移除该老人，已有令牌再次访问也返回 403。
 
 ## 已实现：风险复核纵向切片
 
@@ -171,7 +171,7 @@ GDS-15 按 0-8、9-11、12-15 分为一般、中度关注和高度关注；GAD-7
 | `GET /api/admin/risk-events` | admin、professional | 风险队列，支持 level、status、page、perPage |
 | `GET /api/admin/risk-events/{id}` | admin、professional | 结构化证据、版本和处置时间线；访问会审计 |
 | `POST /api/admin/risk-events/{id}/actions` | admin、professional | 按状态机执行复核动作 |
-| `GET /api/admin/audit-logs` | admin、professional（暂定） | 按 actorId、action、targetType、targetId 查询审计，支持分页 |
+| `GET /api/admin/audit-logs` | admin | 按 actorId、action、targetType、targetId 查询全局审计，支持分页；专业人员不具备全局审计权限 |
 | `GET /api/admin/emergency-events` | admin、professional | 查询紧急事件队列，支持 status、elderId 和分页 |
 | `POST /api/admin/emergency-events/{id}/actions` | admin、professional | 确认、解除、取消或重新打开紧急事件 |
 

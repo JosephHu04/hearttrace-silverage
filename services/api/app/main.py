@@ -19,6 +19,7 @@ from app.routers import (
     realtime_speech,
     screenings,
     speech,
+    voice_calls,
 )
 from app.schemas import HealthOut
 
@@ -33,6 +34,10 @@ def validate_runtime_settings() -> None:
         raise RuntimeError("生产环境必须关闭演示登录与演示数据")
     if settings.jwt_secret == "development-only-change-me-32-bytes-minimum" or len(settings.jwt_secret) < 32:
         raise RuntimeError("生产环境必须配置至少 32 字符的独立 JWT_SECRET")
+    if any((settings.livekit_url, settings.livekit_api_key, settings.livekit_api_secret)):
+        if not all((settings.livekit_url.startswith("wss://"), settings.livekit_api_key,
+                    len(settings.livekit_api_secret) >= 32)):
+            raise RuntimeError("生产语音通话必须使用 WSS 和独立的 LiveKit 密钥")
 
 
 @asynccontextmanager
@@ -84,6 +89,7 @@ def create_app() -> FastAPI:
     application.include_router(screenings.router, prefix=settings.api_prefix)
     application.include_router(notifications.router, prefix=settings.api_prefix)
     application.include_router(speech.router, prefix=settings.api_prefix)
+    application.include_router(voice_calls.router, prefix=settings.api_prefix)
 
     @application.get(f"{settings.api_prefix}/health", response_model=HealthOut, tags=["system"])
     def health() -> HealthOut:

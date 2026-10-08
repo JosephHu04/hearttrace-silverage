@@ -26,6 +26,15 @@ def test_family_role_cannot_access_admin_queue(client: TestClient, family_header
     assert response.status_code == 403
 
 
+def test_only_admin_can_query_global_audit_logs(client: TestClient, admin_headers: dict[str, str]):
+    professional_login = client.post("/api/auth/demo-login", json={"actorId": "staff-professional-001"})
+    assert professional_login.status_code == 200
+    professional_headers = {"Authorization": f"Bearer {professional_login.json()['accessToken']}"}
+    assert client.get("/api/admin/risk-events", headers=professional_headers).status_code == 200
+    assert client.get("/api/admin/audit-logs", headers=professional_headers).status_code == 403
+    assert client.get("/api/admin/audit-logs", headers=admin_headers).status_code == 200
+
+
 def test_risk_detail_returns_structured_evidence_and_audits_view(
     client: TestClient, admin_headers: dict[str, str]
 ):

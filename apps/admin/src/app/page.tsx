@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { ApiError, changeFamilyGrant, getAdminCheckIns, getAuditLogs, getElderAccounts, getEmergencyQueue, getFamilyGrants, getNotifications, getRegistrationApplications, getRiskDetail, getRiskQueue, getScreeningQueue, markNotificationRead, performEmergencyAction, performRiskAction, reviewRegistrationApplication } from "@/lib/admin-api";
 import { clearAdminSession, readAdminSession } from "@/lib/admin-session";
 import { AccountSetup } from "./account-setup";
-import type { Actor, AdminCheckIn, AuditFilters, AuditListResponse, AuthorizationScope, ElderAccount, EmergencyAction, EmergencyEvent, EmergencyStatus, FamilyGrant, GrantAction, NotificationCategory, NotificationItem, NotificationListResponse, RegistrationApplication, RiskAction, RiskDetail, RiskListItem, RiskStatus, ScreeningSummary } from "@/lib/types";
+import type { Actor, AdminCheckIn, AuditFilters, AuditListResponse, AuthorizationScope, ElderAccount, EmergencyAction, EmergencyEvent, EmergencyStatus, FamilyGrant, GrantAction, NotificationCategory, NotificationItem, NotificationListResponse, RegistrationApplication, RiskAction, RiskDetail, RiskLevel, RiskListItem, RiskStatus, ScreeningSummary } from "@/lib/types";
 
 type AdminView = "risk" | "screenings" | "emergency" | "checkins" | "relationships" | "notifications" | "audit" | "registrations";
 
@@ -23,8 +23,13 @@ const auditActionLabels: Record<string, string> = {
   "risk.close": "关闭风险事件",
   "risk.reopen": "重新打开",
   "family.today_viewed": "家属查看今日摘要",
+  "family.trend_viewed": "家属查看关怀趋势",
+  "family.care_plan_viewed": "家属查看陪伴计划",
+  "family.care_plan_created": "家属新增陪伴计划",
+  "family.care_plan_completed": "家属完成陪伴计划",
+  "family.check_ins_viewed": "家属查看已分享自述",
   "family.contacted": "家属记录已联系",
-  "family.video_planned": "家属安排视频联络",
+  "family.video_planned": "家属记录视频联络计划",
   "family.referral_requested": "家属申请专业转介",
   "emergency.created": "发起紧急求助",
   "emergency.acknowledge": "确认收到求助",
@@ -36,18 +41,68 @@ const auditActionLabels: Record<string, string> = {
   "grant.revoke": "撤销家属授权",
   "grant.reactivate": "重新启用授权",
   "conversation.analysis_queued": "提交授权会话分析",
+  "conversation.session_created": "老人开启陪伴会话",
+  "conversation.consent_revoked": "老人撤回会话授权",
+  "conversation.messages_read": "老人查看本人对话记录",
   "analysis.completed": "完成结构化关怀分析",
   "analysis.skipped": "因授权变化跳过分析",
   "analysis.failed": "关怀分析任务失败",
   "analysis.summary_published": "发布已复核家属摘要",
   "screening.started": "老人开始标准筛查",
   "screening.completed": "老人完成标准筛查",
+  "screening.answer_corrected": "老人更正筛查答案",
   "screening.queue_viewed": "查看标准筛查队列",
+  "daily_check_in.created": "老人提交每日自述",
+  "daily_check_in.updated": "老人更新每日自述",
+  "daily_check_in.sharing_updated": "老人调整自述分享范围",
+  "daily_check_in.queue_viewed": "工作人员查看已分享自述队列",
   "family.screenings_viewed": "家属查看筛查摘要",
+  "elder.created": "管理员开通老人账号",
+  "registration.approved": "管理员通过家属申请",
+  "registration.rejected": "管理员驳回家属申请",
+  "task.retry_requested": "管理员请求重试后台任务",
+  "voice_call.started": "发起家人语音通话",
+  "voice_call.answered": "接听家人语音通话",
+  "voice_call.declined": "拒绝家人语音通话",
+  "voice_call.ended": "结束家人语音通话",
   "notification.read": "读取站内通知",
   "notification.delivered": "确认通知投递",
   "notification.delivery_failed": "通知投递失败"
 };
+
+const auditTargetLabels: Record<string, string> = {
+  elder: "老人账号", user: "用户账号", risk_event: "风险事件", emergency_event: "安全事件",
+  family_elder_grant: "家属授权关系", registration_application: "家属注册申请",
+  conversation_session: "陪伴会话", conversation_analysis: "关怀分析", daily_insight: "每日摘要",
+  daily_check_in: "每日自述", daily_check_in_queue: "已分享自述队列",
+  screening_session: "标准筛查", screening_queue: "筛查队列", outbox_event: "后台任务",
+  notification: "站内通知", voice_call: "家人语音通话", family_care_plan_item: "陪伴计划"
+};
+
+function auditScopeSummary(action: string, metadata: Record<string, unknown>) {
+  if (action === "daily_check_in.queue_viewed") return `近${metadata.days ?? "—"}天 · ${metadata.attentionOnly ? "只看待关注" : "全部已分享记录"}`;
+  if (action === "conversation.session_created") return `聊天保存：${metadata.saveMessages ? "允许" : "不允许"} · 分析：${metadata.allowAnalysis ? "允许" : "不允许"}`;
+  if (action === "screening.queue_viewed") return "仅查看本人同意分享的结构化结果";
+  if (action === "family.today_viewed") return "已授权的结构化关怀摘要";
+  if (action === "analysis.completed") return "结构化候选线索，非诊断";
+  if (action === "risk.viewed") return "仅查看结构化风险线索";
+  return "完整字段见详情，不含聊天全文";
+}
+
+function auditAssessment(action: string) {
+  if (["analysis.failed", "notification.delivery_failed"].includes(action)) return "任务失败，需排查";
+  if (action === "analysis.skipped") return "因授权变化已停止";
+  return "已留痕 · 待人工核对";
+}
+
+const riskLevelPriority: Record<RiskLevel, number> = { red: 0, orange: 1, yellow: 2, green: 3 };
+function prioritizeRisks(items: RiskListItem[]) {
+  return [...items].sort((a, b) => {
+    const aClosed = ["resolved", "false_positive", "closed"].includes(a.status) ? 1 : 0;
+    const bClosed = ["resolved", "false_positive", "closed"].includes(b.status) ? 1 : 0;
+    return aClosed - bClosed || riskLevelPriority[a.level] - riskLevelPriority[b.level] || Date.parse(a.createdAt) - Date.parse(b.createdAt);
+  });
+}
 
 const emergencyStatusLabels: Record<EmergencyStatus, string> = {
   open: "等待确认",
@@ -79,6 +134,13 @@ const statusLabels: Record<RiskStatus, string> = {
   resolved: "已解决",
   false_positive: "误报",
   closed: "已关闭"
+};
+
+const riskLevelLabels: Record<RiskLevel, string> = {
+  green: "绿色",
+  yellow: "黄色",
+  orange: "橙色",
+  red: "红色"
 };
 
 const actionLabels: Record<RiskAction, string> = {
@@ -113,6 +175,12 @@ const notificationCategoryLabels: Record<NotificationCategory, string> = {
   analysis_summary: "关怀摘要"
 };
 
+const evidenceSourceLabels: Record<string, string> = {
+  trend: "近期状态变化",
+  screening: "标准量表结果",
+  model_signal: "聊天摘要中的关注线索"
+};
+
 const actionableNotificationTargets = new Set(["risk_event", "emergency_event", "registration_application", "family_elder_grant"]);
 
 const viewHeadings: Record<AdminView, { eyebrow: string; title: string }> = {
@@ -129,6 +197,7 @@ const viewHeadings: Record<AdminView, { eyebrow: string; title: string }> = {
 function formatTime(value: string | null) {
   if (!value) return "未设置";
   return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
@@ -167,6 +236,7 @@ export default function AdminDashboard() {
   const [emergencyBusy, setEmergencyBusy] = useState<EmergencyAction | null>(null);
   const [elderAccounts, setElderAccounts] = useState<ElderAccount[]>([]);
   const [applicationElders, setApplicationElders] = useState<Record<string, string>>({});
+  const [applicationNotes, setApplicationNotes] = useState<Record<string, string>>({});
   const [grants, setGrants] = useState<FamilyGrant[]>([]);
   const [grantDrafts, setGrantDrafts] = useState<Record<string, AuthorizationScope[]>>({});
   const [grantNotes, setGrantNotes] = useState<Record<string, string>>({});
@@ -205,32 +275,37 @@ export default function AdminDashboard() {
         setToken(session.accessToken);
         setAuthorized(true);
         setApplications(registrationQueue.items);
-        const queue = await getRiskQueue(session.accessToken);
+        const [riskResult, screeningResult, emergencyResult, elderResult, grantResult, notificationResult] = await Promise.allSettled([
+          getRiskQueue(session.accessToken), getScreeningQueue(session.accessToken), getEmergencyQueue(session.accessToken),
+          getElderAccounts(session.accessToken), getFamilyGrants(session.accessToken), getNotifications(session.accessToken)
+        ]);
         if (!active) return;
-        setRisks(queue.items);
-        const screeningQueue = await getScreeningQueue(session.accessToken);
-        if (!active) return;
-        setScreenings(screeningQueue.items);
-        const emergencyQueue = await getEmergencyQueue(session.accessToken);
-        if (!active) return;
-        setEmergencies(emergencyQueue.items);
-        setSelectedEmergency(emergencyQueue.items[0] ?? null);
-        const elders = await getElderAccounts(session.accessToken);
-        if (!active) return;
-        setElderAccounts(elders.items);
-        const grantQueue = await getFamilyGrants(session.accessToken);
-        if (!active) return;
-        setGrants(grantQueue.items);
-        setGrantDrafts(Object.fromEntries(grantQueue.items.map((grant) => [`${grant.familyId}:${grant.elderId}`, grant.scopes])));
-        const notificationQueue = await getNotifications(session.accessToken);
-        if (!active) return;
-        setNotifications(notificationQueue);
-        if (queue.items[0]) {
-          const detail = await getRiskDetail(session.accessToken, queue.items[0].id);
-          if (!active) return;
-          setSelected(detail);
+        const failures = [riskResult, screeningResult, emergencyResult, elderResult, grantResult, notificationResult]
+          .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+          .map((result) => result.reason);
+        const authFailure = failures.find((cause) => cause instanceof ApiError && [401, 403].includes(cause.status));
+        if (authFailure) throw authFailure;
+        if (riskResult.status === "fulfilled") {
+          const sorted = prioritizeRisks(riskResult.value.items);
+          setRisks(sorted);
+          if (sorted[0]) {
+            try { setSelected(await getRiskDetail(session.accessToken, sorted[0].id)); }
+            catch { failures.push(new Error("风险详情暂时无法读取")); }
+          }
         }
-        setNotice("已连接真实 API · 当前仅展示结构化证据");
+        if (!active) return;
+        if (screeningResult.status === "fulfilled") setScreenings(screeningResult.value.items);
+        if (emergencyResult.status === "fulfilled") {
+          setEmergencies(emergencyResult.value.items);
+          setSelectedEmergency(emergencyResult.value.items[0] ?? null);
+        }
+        if (elderResult.status === "fulfilled") setElderAccounts(elderResult.value.items);
+        if (grantResult.status === "fulfilled") {
+          setGrants(grantResult.value.items);
+          setGrantDrafts(Object.fromEntries(grantResult.value.items.map((grant) => [`${grant.familyId}:${grant.elderId}`, grant.scopes])));
+        }
+        if (notificationResult.status === "fulfilled") setNotifications(notificationResult.value);
+        setNotice(failures.length ? `已连接业务后端；${failures.length}项资料暂时不可用，可进入对应页面重试。` : "已连接业务后端 · 当前仅展示结构化证据");
       } catch (cause) {
         if (!active) return;
         if (cause instanceof ApiError && (cause.status === 401 || cause.status === 403)) {
@@ -259,6 +334,7 @@ export default function AdminDashboard() {
     () => risks.filter((item) => ["orange", "red"].includes(item.level) && item.status !== "closed").length,
     [risks]
   );
+  const prioritizedRisks = useMemo(() => prioritizeRisks(risks), [risks]);
 
   const selectRisk = async (item: RiskListItem) => {
     if (!token || item.id === selected?.id) return;
@@ -302,7 +378,6 @@ export default function AdminDashboard() {
       const result = await getAuditLogs(token, filters);
       setAudits(result);
       setAppliedAuditFilters(filters);
-      setNotice(`已读取 ${result.total} 条审计记录`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "读取审计记录失败");
     } finally {
@@ -331,7 +406,6 @@ export default function AdminDashboard() {
       const result = await getAdminCheckIns(token, days, attentionOnly);
       setCheckIns(result.items);
       setCheckInsTotal(result.total);
-      setNotice(`已读取 ${result.total} 条老人主动分享的每日自述`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "读取每日自述失败");
     } finally {
@@ -339,12 +413,12 @@ export default function AdminDashboard() {
     }
   };
 
-  const recordNotificationRead = async (item: NotificationItem) => {
-    if (!token || item.isRead) return;
+  const recordNotificationRead = async (item: NotificationItem, related: NotificationItem[] = [item]) => {
+    if (!token || related.every((entry) => entry.isRead)) return;
     setNotificationBusy(item.id);
     setError("");
     try {
-      await markNotificationRead(token, item.id);
+      await Promise.all(related.filter((entry) => !entry.isRead).map((entry) => markNotificationRead(token, entry.id)));
       await loadNotifications(notifications.page, notificationUnreadOnly);
       setNotice("通知已标记为已读，操作已写入审计日志");
     } catch (cause) {
@@ -354,9 +428,9 @@ export default function AdminDashboard() {
     }
   };
 
-  const openNotificationTarget = async (item: NotificationItem) => {
+  const openNotificationTarget = async (item: NotificationItem, related: NotificationItem[] = [item]) => {
     if (!token) return;
-    if (!item.isRead) await recordNotificationRead(item);
+    if (related.some((entry) => !entry.isRead)) await recordNotificationRead(item, related);
     setError("");
     try {
       if (item.targetType === "risk_event") {
@@ -397,6 +471,7 @@ export default function AdminDashboard() {
   const openView = (view: AdminView) => {
     setActiveView(view);
     setError("");
+    setNotice(`${viewHeadings[view].eyebrow} · 仅显示当前账号有权访问的内容`);
     if (view === "audit" && audits.items.length === 0) void loadAudits(emptyAuditFilters);
     if (view === "screenings") void getScreeningQueue(token).then((queue) => setScreenings(queue.items)).catch(() => setError("读取标准筛查队列失败"));
     if (view === "registrations") {
@@ -415,6 +490,11 @@ export default function AdminDashboard() {
 
   const auditPageCount = Math.max(1, Math.ceil(audits.total / audits.perPage));
   const notificationPageCount = Math.max(1, Math.ceil(notifications.total / notifications.perPage));
+  const groupedNotifications = Object.values(notifications.items.reduce<Record<string, NotificationItem[]>>((groups, item) => {
+    const key = `${item.category}:${item.targetType}:${item.targetId}`;
+    (groups[key] ??= []).push(item);
+    return groups;
+  }, {}));
 
   const logout = () => {
     clearAdminSession();
@@ -431,10 +511,14 @@ export default function AdminDashboard() {
       setError("通过申请前必须选择已核验的老人账号");
       return;
     }
+    if (decision === "approved" && !applicationNotes[application.id]?.trim()) {
+      setError("通过申请前请填写身份及关系核验依据；仅凭同名不能授权");
+      return;
+    }
     setReviewingId(application.id);
     setError("");
     try {
-      await reviewRegistrationApplication(token, application.id, decision, elderId);
+      await reviewRegistrationApplication(token, application.id, decision, elderId, applicationNotes[application.id]);
       setApplications((current) => current.filter((item) => item.id !== application.id));
       if (decision === "approved") await loadGrants();
       setNotice(decision === "approved" ? "申请已通过，家属账户已激活。" : "申请已驳回，结果已写入审计记录。");
@@ -521,8 +605,7 @@ export default function AdminDashboard() {
           <button className={`nav-item ${activeView === "checkins" ? "active" : ""}`} onClick={() => openView("checkins")}><span>05</span>每日自述{checkIns.filter((item) => item.attentionNeeded).length > 0 && <em>{checkIns.filter((item) => item.attentionNeeded).length} 关注</em>}</button>
           <button className={`nav-item ${activeView === "relationships" ? "active" : ""}`} onClick={() => openView("relationships")}><span>06</span>关系与授权<em>{grants.filter((grant) => grant.isActive).length} 生效</em></button>
           <button className={`nav-item ${activeView === "notifications" ? "active" : ""}`} onClick={() => openView("notifications")}><span>07</span>通知中心{notifications.unreadCount > 0 && <em>{notifications.unreadCount} 未读</em>}</button>
-          <button className="nav-item" disabled><span>08</span>设备管理<em>待接入</em></button>
-          <button className={`nav-item ${activeView === "audit" ? "active" : ""}`} onClick={() => openView("audit")}><span>09</span>审计查询</button>
+          <button className={`nav-item ${activeView === "audit" ? "active" : ""}`} onClick={() => openView("audit")}><span>08</span>审计查询</button>
         </nav>
         <div className="sidebar-note">
           <span className="connection-dot" />
@@ -545,7 +628,7 @@ export default function AdminDashboard() {
         <section className="metrics" aria-label="风险概览">
           <article><p>开放事项</p><strong>{loading ? "—" : activeCount}</strong><small>等待认领或处置</small></article>
           <article className="urgent"><p>橙红风险</p><strong>{loading ? "—" : urgentCount}</strong><small>优先完成复核</small></article>
-          <article><p>当前队列</p><strong>{loading ? "—" : risks.length}</strong><small>已按创建时间排序</small></article>
+          <article><p>当前队列</p><strong>{loading ? "—" : risks.length}</strong><small>未结事项优先，按关注等级排列</small></article>
           <article><p>证据策略</p><strong className="text-value">结构化</strong><small>默认不返回聊天全文</small></article>
         </section>
 
@@ -555,13 +638,13 @@ export default function AdminDashboard() {
             <div className="queue-list">
               {loading && <div className="empty">正在读取风险队列…</div>}
               {!loading && risks.length === 0 && <div className="empty">当前没有待复核事件</div>}
-              {risks.map((risk) => (
+              {prioritizedRisks.map((risk) => (
                 <button
                   key={risk.id}
                   className={`queue-item ${selected?.id === risk.id ? "selected" : ""}`}
                   onClick={() => { void selectRisk(risk); }}
                 >
-                  <div className="queue-top"><span className={`level ${risk.level}`}>{risk.level === "red" ? "红色" : risk.level === "orange" ? "橙色" : "关注"}</span><time>{formatTime(risk.slaDueAt)}</time></div>
+                  <div className="queue-top"><span className={`level ${risk.level}`}>{riskLevelLabels[risk.level]}</span><time>{formatTime(risk.slaDueAt)}</time></div>
                   <strong>{risk.title}</strong>
                   <p>{risk.elderName} · {statusLabels[risk.status]}</p>
                 </button>
@@ -574,22 +657,28 @@ export default function AdminDashboard() {
             {selected && (
               <>
                 <div className="detail-head">
-                  <div><div className="detail-meta"><span className={`level ${selected.level}`}>{selected.level.toUpperCase()}</span><span>{statusLabels[selected.status]}</span><span>版本 {selected.version}</span></div><h2>{selected.title}</h2><p>{selected.summary}</p></div>
+                  <div><div className="detail-meta"><span className={`level ${selected.level}`}>{riskLevelLabels[selected.level]}</span><span>{statusLabels[selected.status]}</span></div><h2>{selected.title}</h2><p>{selected.summary}</p></div>
                   <div className="elder-card"><small>服务对象</small><strong>{selected.elderName}</strong><span>{selected.elderId}</span></div>
                 </div>
 
                 <div className="detail-columns">
                   <section>
-                    <div className="section-title"><div><p>可解释证据</p><h3>三类来源共同支持复核</h3></div><span>不含聊天全文</span></div>
+                    <div className="section-title"><div><p>为什么需要关注</p><h3>供工作人员核对的线索</h3></div><span>不含聊天全文</span></div>
+                    <p className="evidence-help">这些信息来自近期变化、量表或经授权的聊天摘要。系统只负责提示，是否需要跟进由工作人员结合实际情况判断。</p>
                     <div className="evidence-list">
                       {selected.evidence.map((item, index) => (
                         <article key={item.id}>
                           <span>{String(index + 1).padStart(2, "0")}</span>
-                          <div><small>{item.label}</small><strong>{item.detail}</strong><p>引用：{item.evidenceRef}</p></div>
+                          <div><small>{evidenceSourceLabels[item.sourceType] ?? item.label}</small><strong>{item.detail}</strong><p>记录时间：{formatTime(item.recordedAt)}</p></div>
                         </article>
                       ))}
                     </div>
-                    <div className="versions"><span>模型 {selected.modelVersion ?? "未使用"}</span><span>规则 {selected.ruleVersion}</span></div>
+                    <details className="evidence-trace">
+                      <summary>查看后台核对信息</summary>
+                      <p>以下编号仅用于核对数据来源，不是诊断结论，也不能打开聊天全文。</p>
+                      <ul>{selected.evidence.map((item, index) => <li key={item.id}>线索 {index + 1}：<code>{item.evidenceRef}</code></li>)}</ul>
+                      <p>分析版本：<code>{selected.modelVersion ?? "未使用模型"}</code>；判断规则版本：<code>{selected.ruleVersion}</code></p>
+                    </details>
                   </section>
 
                   <aside className="action-box">
@@ -641,7 +730,7 @@ export default function AdminDashboard() {
               <article><p>完成记录</p><strong>{screenings.filter((item) => item.status === "completed").length}</strong><small>本人同意分享给关怀团队</small></article>
               <article><p>需要关注</p><strong>{screenings.filter((item) => item.band === "moderate").length}</strong><small>已自动进入人工复核</small></article>
               <article className="urgent"><p>尽快评估</p><strong>{screenings.filter((item) => item.band === "high").length}</strong><small>优先查看对应风险事件</small></article>
-              <article><p>计分依据</p><strong className="text-value">WS/T 802</strong><small>版本固定、结果可追溯</small></article>
+              <article><p>计分依据</p><strong className="text-value">WS/T 802-2022</strong><small>GDS-15 与 GAD-7；固定题目和计分，仅供筛查，不是诊断</small></article>
             </section>
             <div className="application-list">
               {screenings.length === 0 && <div className="empty">当前没有本人授权分享的标准筛查记录</div>}
@@ -685,7 +774,7 @@ export default function AdminDashboard() {
           <section className="checkin-console panel">
             <div className="checkin-toolbar"><div><p>老人主动分享的结构化自述</p><h2>每日自述关注台</h2><small>只读取老人明确分享给关怀团队的数据；低分仅提示人工关注，不代表抑郁、自残或任何疾病诊断。</small></div><div className="checkin-controls"><label>时间范围<select value={checkInsDays} onChange={(event) => { const days = Number(event.target.value); setCheckInsDays(days); void loadCheckIns(days, checkInsAttentionOnly); }}><option value={7}>近 7 天</option><option value={14}>近 14 天</option><option value={30}>近 30 天</option></select></label><label className="checkin-toggle"><input type="checkbox" checked={checkInsAttentionOnly} onChange={(event) => { const only = event.target.checked; setCheckInsAttentionOnly(only); void loadCheckIns(checkInsDays, only); }} /> 只看需要关注</label><button className="secondary" disabled={checkInsLoading} onClick={() => void loadCheckIns()}>{checkInsLoading ? "刷新中…" : "刷新"}</button></div></div>
             <div className="checkin-summary"><strong>{checkInsTotal}</strong><span>条已获授权的自述</span><b>{checkIns.filter((item) => item.attentionNeeded).length}</b><span>条建议人工关注</span></div>
-            <div className="checkin-table"><div className="checkin-row checkin-header"><span>日期</span><span>老人</span><span>心情</span><span>睡眠</span><span>交流意愿</span><span>提示</span></div>{checkInsLoading && <div className="empty">正在读取每日自述…</div>}{!checkInsLoading && checkIns.length === 0 && <div className="empty">当前筛选范围内没有已分享的每日自述</div>}{!checkInsLoading && checkIns.map((item) => <article className={`checkin-row ${item.attentionNeeded ? "attention" : ""}`} key={item.id}><time>{item.checkinDate}</time><strong>{item.elderName}<small>{item.elderId}</small></strong><span>{item.mood}/5</span><span>{item.sleep}/5</span><span>{item.socialWillingness}/5</span><span>{item.attentionNeeded ? <em>建议人工问候</em> : <i>记录正常</i>}</span></article>)}</div>
+            <div className="checkin-table"><div className="checkin-row checkin-header"><span>日期</span><span>老人</span><span>心情</span><span>睡眠</span><span>交流意愿</span><span>提示</span></div>{checkInsLoading && <div className="empty">正在读取每日自述…</div>}{!checkInsLoading && checkIns.length === 0 && <div className="empty">当前筛选范围内没有已分享的每日自述</div>}{!checkInsLoading && checkIns.map((item) => <article className={`checkin-row ${item.attentionNeeded ? "attention" : ""}`} key={item.id}><time>{item.checkinDate}</time><strong>{item.elderName}<small>{item.elderId}</small></strong><span>{item.mood}/5</span><span>{item.sleep}/5</span><span>{item.socialWillingness}/5</span><span>{item.attentionNeeded ? <em>建议人工问候</em> : <i>本次未触发提醒</i>}</span></article>)}</div>
           </section>
         ) : activeView === "relationships" ? (
           <section className="relationship-panel panel">
@@ -724,26 +813,29 @@ export default function AdminDashboard() {
             </div>
             <div className="notification-summary">
               <span><strong>{notifications.unreadCount}</strong> 未读</span>
-              <span><strong>{notifications.total}</strong> {notificationUnreadOnly ? "条未读结果" : "条通知"}</span>
+              <span><strong>{notifications.total}</strong> {notificationUnreadOnly ? "条未读结果" : "条通知"} · 本页 {groupedNotifications.length} 组事项</span>
               <small>第 {notifications.page}/{notificationPageCount} 页</small>
             </div>
             <div className="notification-list" aria-live="polite">
               {notificationLoading && <div className="empty">正在读取通知…</div>}
               {!notificationLoading && notifications.items.length === 0 && <div className="empty">{notificationUnreadOnly ? "当前没有未读通知" : "当前没有业务通知"}</div>}
-              {!notificationLoading && notifications.items.map((item) => (
-                <article className={`notification-item ${item.isRead ? "read" : "unread"}`} key={item.id}>
+              {!notificationLoading && groupedNotifications.map((group) => {
+                const item = group[0];
+                const unread = group.some((entry) => !entry.isRead);
+                return <article className={`notification-item ${unread ? "unread" : "read"}`} key={`${item.category}:${item.targetType}:${item.targetId}`}>
                   <span className={`notification-category ${item.category}`}>{notificationCategoryLabels[item.category]}</span>
                   <div className="notification-copy">
-                    <div><h3>{item.title}</h3>{!item.isRead && <b>未读</b>}</div>
+                    <div><h3>{item.title}</h3>{unread && <b>未读</b>}{group.length > 1 && <b>{group.length} 次更新</b>}</div>
                     <p>{item.body}</p>
-                    <small>{formatTime(item.createdAt)} · {item.targetType} · {item.targetId}</small>
+                    <small>最近更新 {formatTime(item.createdAt)} · {auditTargetLabels[item.targetType] ?? "业务事项"}</small>
+                    {group.length > 1 && <details className="notification-history"><summary>查看全部 {group.length} 次提醒</summary><ul>{group.map((entry) => <li key={entry.id}><time>{formatTime(entry.createdAt)}</time><span>{entry.body}</span></li>)}</ul></details>}
                   </div>
                   <div className="notification-actions">
-                    {!item.isRead && <button className="secondary" disabled={notificationBusy === item.id} onClick={() => void recordNotificationRead(item)}>{notificationBusy === item.id ? "处理中…" : "标为已读"}</button>}
-                    {actionableNotificationTargets.has(item.targetType) && <button className="primary" disabled={notificationBusy === item.id} onClick={() => void openNotificationTarget(item)}>查看相关事项</button>}
+                    {unread && <button className="secondary" disabled={notificationBusy === item.id} onClick={() => void recordNotificationRead(item, group)}>{notificationBusy === item.id ? "处理中…" : "全部标为已读"}</button>}
+                    {actionableNotificationTargets.has(item.targetType) && <button className="primary" disabled={notificationBusy === item.id} onClick={() => void openNotificationTarget(item, group)}>查看相关事项</button>}
                   </div>
-                </article>
-              ))}
+                </article>;
+              })}
             </div>
             <div className="audit-pagination">
               <button className="secondary" disabled={notificationLoading || notifications.page <= 1} onClick={() => void loadNotifications(notifications.page - 1, notificationUnreadOnly)}>上一页</button>
@@ -756,40 +848,7 @@ export default function AdminDashboard() {
               <label>动作类型
                 <select value={auditFilters.action} onChange={(event) => setAuditFilters((current) => ({ ...current, action: event.target.value }))}>
                   <option value="">全部动作</option>
-                  <option value="risk.viewed">查看风险详情</option>
-                  <option value="risk.claim">认领风险事件</option>
-                  <option value="risk.begin_review">开始人工复核</option>
-                  <option value="risk.request_action">要求跟进</option>
-                  <option value="risk.escalate">升级处置</option>
-                  <option value="risk.resolve">记录已解决</option>
-                  <option value="risk.mark_false_positive">标记误报</option>
-                  <option value="risk.close">关闭风险事件</option>
-                  <option value="risk.reopen">重新打开</option>
-                  <option value="family.today_viewed">家属查看摘要</option>
-                  <option value="family.contacted">家属记录已联系</option>
-                  <option value="family.video_planned">家属安排视频联络</option>
-                  <option value="family.referral_requested">家属申请专业转介</option>
-                  <option value="emergency.created">发起紧急求助</option>
-                  <option value="emergency.acknowledge">确认收到求助</option>
-                  <option value="emergency.resolve">解除紧急事件</option>
-                  <option value="emergency.cancel">取消紧急事件</option>
-                  <option value="emergency.reopen">重新打开紧急事件</option>
-                  <option value="grant.created">创建家属授权</option>
-                  <option value="grant.update_scopes">调整授权范围</option>
-                  <option value="grant.revoke">撤销家属授权</option>
-                  <option value="grant.reactivate">重新启用授权</option>
-                  <option value="conversation.analysis_queued">提交授权会话分析</option>
-                  <option value="analysis.completed">完成结构化关怀分析</option>
-                  <option value="analysis.skipped">因授权变化跳过分析</option>
-                  <option value="analysis.failed">关怀分析任务失败</option>
-                  <option value="analysis.summary_published">发布已复核家属摘要</option>
-                  <option value="screening.started">老人开始标准筛查</option>
-                  <option value="screening.completed">老人完成标准筛查</option>
-                  <option value="screening.queue_viewed">查看标准筛查队列</option>
-                  <option value="family.screenings_viewed">家属查看筛查摘要</option>
-                  <option value="notification.read">读取站内通知</option>
-                  <option value="notification.delivered">确认通知投递</option>
-                  <option value="notification.delivery_failed">通知投递失败</option>
+                  {Object.entries(auditActionLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                 </select>
               </label>
               <label>操作者 ID
@@ -798,16 +857,7 @@ export default function AdminDashboard() {
               <label>对象类型
                 <select value={auditFilters.targetType} onChange={(event) => setAuditFilters((current) => ({ ...current, targetType: event.target.value }))}>
                   <option value="">全部对象</option>
-                  <option value="risk_event">风险事件</option>
-                  <option value="elder">老人账号</option>
-                  <option value="emergency_event">紧急事件</option>
-                  <option value="family_elder_grant">家属授权关系</option>
-                  <option value="conversation_session">陪伴会话</option>
-                  <option value="conversation_analysis">结构化关怀分析</option>
-                  <option value="daily_insight">家属每日摘要</option>
-                  <option value="screening_session">标准筛查记录</option>
-                  <option value="outbox_event">异步任务事件</option>
-                  <option value="notification">站内通知</option>
+                  {Object.entries(auditTargetLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                 </select>
               </label>
               <label>对象 ID
@@ -819,19 +869,25 @@ export default function AdminDashboard() {
               </div>
             </form>
 
-            <div className="audit-summary"><div><p>查询结果</p><h2>敏感操作留痕</h2></div><span>{audits.total} 条记录 · 第 {audits.page}/{auditPageCount} 页</span></div>
-            <div className="audit-table" role="table" aria-label="审计记录">
-              <div className="audit-row audit-header" role="row"><span>时间</span><span>操作者</span><span>动作</span><span>对象</span><span>元数据</span></div>
+            <div className="audit-summary"><div><p>查询结果</p><h2>敏感操作留痕</h2><small>记录本身不能证明授权合规，也不能判断老人健康状态；可展开核对原始字段。</small></div><span>{audits.total} 条记录 · 第 {audits.page}/{auditPageCount} 页</span></div>
+            <div className="audit-list" aria-label="审计记录">
               {auditLoading && <div className="empty">正在读取审计记录…</div>}
               {!auditLoading && audits.items.length === 0 && <div className="empty">没有符合条件的审计记录</div>}
               {!auditLoading && audits.items.map((item) => (
-                <article className="audit-row" role="row" key={item.id}>
-                  <time>{formatTime(item.createdAt)}</time>
-                  <span><strong>{item.actorDisplayName ?? item.actorId}</strong><small>{item.actorId}</small></span>
-                  <span><strong>{auditActionLabels[item.action] ?? item.action}</strong><small>{item.action}</small></span>
-                  <span><strong>{item.targetType}</strong><small>{item.targetId}</small></span>
-                  <code>{Object.keys(item.metadata).length ? JSON.stringify(item.metadata) : "—"}</code>
-                </article>
+                <details className="audit-entry" key={item.id}>
+                  <summary className="audit-row">
+                    <time>{formatTime(item.createdAt)}</time>
+                    <span><strong>{item.actorDisplayName ?? "未命名账号"}</strong><small>{auditTargetLabels[item.targetType] ?? "业务对象"}</small></span>
+                    <span><strong>{auditActionLabels[item.action] ?? "其他业务操作"}</strong><small>{auditScopeSummary(item.action, item.metadata)}</small></span>
+                    <span className="audit-judgment">{auditAssessment(item.action)}</span>
+                    <span className="audit-expand">查看原始字段</span>
+                  </summary>
+                  <div className="audit-detail">
+                    <dl><div><dt>记录 ID</dt><dd>{item.id}</dd></div><div><dt>操作者 ID</dt><dd>{item.actorId}</dd></div><div><dt>动作代码</dt><dd>{item.action}</dd></div><div><dt>对象</dt><dd>{item.targetType} · {item.targetId}</dd></div></dl>
+                    <div><strong>留存的原始元数据</strong><pre>{Object.keys(item.metadata).length ? JSON.stringify(item.metadata, null, 2) : "无附加元数据"}</pre></div>
+                    <p>此处仅展示系统已有留痕。若需判断操作是否符合授权，应结合当时的授权状态和业务证据人工复核。</p>
+                  </div>
+                </details>
               ))}
             </div>
             <div className="audit-pagination">
@@ -846,7 +902,7 @@ export default function AdminDashboard() {
             <p className="registration-intro">仅核验申请人身份与关系信息。密码以安全哈希保存，审核人员无法查看。</p>
             {loading && <div className="empty">正在读取申请队列…</div>}
             {!loading && applications.length === 0 && <div className="empty">当前没有待审核的注册申请</div>}
-            <div className="application-list">{applications.map((application) => <article key={application.id} className="application-row"><div><strong>{application.displayName}</strong><p>{application.relationship} · 申请关联：{application.elderName}</p><small>{application.loginIdentifier} · 提交于 {formatTime(application.createdAt)}</small></div><div className="registration-actions registration-verification"><label>核验老人账号<select value={applicationElders[application.id] ?? ""} onChange={(event) => setApplicationElders((current) => ({ ...current, [application.id]: event.target.value }))}><option value="">请选择</option>{elderAccounts.map((elder) => <option key={elder.id} value={elder.id}>{elder.displayName} · {elder.age} 岁</option>)}</select></label><div><button className="secondary" disabled={reviewingId !== null} onClick={() => { void reviewApplication(application, "rejected"); }}>驳回</button><button className="primary" disabled={reviewingId !== null || !applicationElders[application.id]} onClick={() => { void reviewApplication(application, "approved"); }}>{reviewingId === application.id ? "提交中…" : "通过并授权"}</button></div></div></article>)}</div>
+            <div className="application-list">{applications.map((application) => <article key={application.id} className="application-row"><div><strong>{application.displayName}</strong><p>{application.relationship} · 申请关联：{application.elderName}</p><small>{application.loginIdentifier} · 提交于 {formatTime(application.createdAt)}</small><p className="registration-caution">请在独立渠道核实老人本人意愿与申请人关系；同名、年龄相符不等于已核验。</p></div><div className="registration-actions registration-verification"><label>选择已核验的老人账号<select value={applicationElders[application.id] ?? ""} onChange={(event) => setApplicationElders((current) => ({ ...current, [application.id]: event.target.value }))}><option value="">请选择</option>{elderAccounts.map((elder) => <option key={elder.id} value={elder.id}>{elder.displayName} · {elder.age} 岁 · {elder.id.slice(-8)}</option>)}</select></label><label>身份及关系核验依据（通过前必填）<textarea value={applicationNotes[application.id] ?? ""} maxLength={500} onChange={(event) => setApplicationNotes((current) => ({ ...current, [application.id]: event.target.value }))} placeholder="记录核验方式与本人同意情况，不填写证件号码" /></label><div><button className="secondary" disabled={reviewingId !== null} onClick={() => { void reviewApplication(application, "rejected"); }}>驳回</button><button className="primary" disabled={reviewingId !== null || !applicationElders[application.id] || !applicationNotes[application.id]?.trim()} onClick={() => { void reviewApplication(application, "approved"); }}>{reviewingId === application.id ? "提交中…" : "通过并授权"}</button></div></div></article>)}</div>
           </section>
         )}
       </section>

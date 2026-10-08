@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { FamilyVoiceCall } from "@/components/FamilyVoiceCall";
 import { ApiError, completeFamilyCarePlanItem, createFamilyCarePlanItem, getFamilyCarePlan, getFamilyCheckIns, getFamilyElders, getFamilyScreenings, getFamilyToday, getFamilyTrend, getNotifications, markNotificationRead, recordFamilyAction } from "@/lib/family-api";
 import type { FamilyAction, FamilyCarePlanItem, FamilyElder, FamilyToday, FamilyTrend, NotificationCategory, NotificationItem, NotificationList, ScreeningSummary, SharedCheckIn } from "@/lib/types";
 
@@ -158,26 +159,34 @@ export default function FamilyDashboard() {
     if (!token || !selectedElderId) return;
     let active = true;
     setApiState("loading");
+    setCheckInsLoading(true);
     setAction("尚未记录行动");
     setNotice("正在读取当前老人的授权摘要、趋势、计划与安全状态。");
-    void Promise.all([
-      getFamilyToday(token, selectedElderId),
-      getFamilyTrend(token, selectedElderId, trendDays),
-      getFamilyCarePlan(token, selectedElderId),
-      getFamilyCheckIns(token, selectedElderId, 7),
-      getFamilyScreenings(token, selectedElderId, trendDays)
-    ])
-      .then(([todayData, trendData, planData, checkInData, screeningData]) => {
+    void getFamilyToday(token, selectedElderId)
+      .then(async (todayData) => {
         if (!active) return;
         setToday(todayData);
-        setTrend(trendData);
-        setCarePlan(planData);
-        setCheckIns(checkInData.items);
-        setCheckInsError("");
-        setCheckInsLoading(false);
-        setScreenings(screeningData.items);
         setApiState("connected");
-        setNotice(`已读取授权摘要、${trendData.items.length} 条趋势记录与私人关怀计划，当前老人：${todayData.elder.name}。`);
+        setNotice(`已读取${todayData.elder.name}的授权摘要；其他资料正在更新。`);
+        const [trendResult, planResult, checkInResult, screeningResult] = await Promise.allSettled([
+          getFamilyTrend(token, selectedElderId, trendDays),
+          getFamilyCarePlan(token, selectedElderId),
+          getFamilyCheckIns(token, selectedElderId, 7),
+          getFamilyScreenings(token, selectedElderId, trendDays)
+        ]);
+        if (!active) return;
+        const failures = [trendResult, planResult, checkInResult, screeningResult]
+          .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+          .map((result) => result.reason);
+        const authorizationFailure = failures.find((error) => error instanceof ApiError && [401, 403].includes(error.status));
+        if (authorizationFailure) throw authorizationFailure;
+        setTrend(trendResult.status === "fulfilled" ? trendResult.value : null);
+        setCarePlan(planResult.status === "fulfilled" ? planResult.value : []);
+        setCheckIns(checkInResult.status === "fulfilled" ? checkInResult.value.items : []);
+        setCheckInsError(checkInResult.status === "rejected" ? "每日自述暂时无法读取，请稍后刷新。" : "");
+        setCheckInsLoading(false);
+        setScreenings(screeningResult.status === "fulfilled" ? screeningResult.value.items : []);
+        setNotice(failures.length ? `已读取${todayData.elder.name}的授权摘要；${failures.length}项附加资料暂时不可用。` : `已读取${todayData.elder.name}的授权摘要和附加资料。`);
       })
       .catch((cause) => {
         if (!active) return;
@@ -187,7 +196,7 @@ export default function FamilyDashboard() {
         setCarePlan([]);
         setCheckIns([]);
         setCheckInsLoading(false);
-        setCheckInsError(cause instanceof ApiError && cause.status === 403 ? "当前授权已撤回，暂时不能查看每日自述。" : "每日自述暂时无法读取，请稍后重试。");
+        setCheckInsError("");
         if (cause instanceof ApiError && cause.status === 401) {
           sessionStorage.removeItem("hearttrace.family.session");
           setToken(null);
@@ -249,6 +258,10 @@ export default function FamilyDashboard() {
       setNotice("当前授权未生效，只能查看通知内容，不能打开老人关怀数据。");
       return;
     }
+    if (elders.length > 1 && !(item.targetType === "elder" && item.targetId === selectedElderId)) {
+      setNotice("该通知可能关联另一位老人。请先选择对应老人，再查看关怀数据。");
+      return;
+    }
     const destination: Partial<Record<NotificationCategory, PageKey>> = {
       emergency: "risk",
       risk_follow_up: "risk",
@@ -267,6 +280,7 @@ export default function FamilyDashboard() {
   };
 
   const recordAction = async (nextAction: FamilyAction, label: string) => {
+    const displayLabel = nextAction === "video_planned" ? "视频联络计划" : label;
     if (actionInFlight.current) return;
     if (!token || !today || !today.access.careActionsAllowed) {
       setNotice("当前登录或关怀授权不可用，请重新确认授权。");
@@ -281,14 +295,14 @@ export default function FamilyDashboard() {
     try {
       const recorded = await recordFamilyAction(token, elderId, pending.riskEventId, nextAction, pending.requestId);
       pendingActions.current.delete(key);
-      setAction(`已记录：${label}`);
+      setAction(`已记录：${displayLabel}`);
       setToday((current) => current?.elder.id === elderId ? ({
         ...current,
         recentActions: [{ action: nextAction, recordedAt: recorded.recordedAt }, ...current.recentActions.filter((item) => item.action !== nextAction || item.recordedAt !== recorded.recordedAt)].slice(0, 5)
       }) : current);
-      setNotice(`关怀行动“${label}”已提交。该记录会进入家属端的后续审计与跟进流程。`);
+      setNotice(`关怀行动“${displayLabel}”已提交。该记录会进入家属端的后续审计与跟进流程。`);
     } catch (error) {
-      setAction(`待同步：${label}`);
+      setAction(`待同步：${displayLabel}`);
       if (error instanceof ApiError && error.status === 401) {
         sessionStorage.removeItem("hearttrace.family.session");
         router.replace("/account");
@@ -367,7 +381,7 @@ export default function FamilyDashboard() {
 
       <div className="content-shell">
         <header className="topbar">
-          <div><p suppressHydrationWarning>{greeting || "今日关怀"}</p><h1>{pageTitles[page]}</h1></div>
+          <div><p suppressHydrationWarning>{greeting || "今日关怀"}</p><h1>{page === "today" && today?.status.summaryState === "historical" ? "查看最近一次关怀记录" : pageTitles[page]}</h1></div>
           <div className="top-actions">
             <Tag tone={page === "notifications" && token ? "calm" : apiState === "connected" ? "safe" : "alert"}>{page === "notifications" && token ? "本人消息" : apiState === "connected" ? "已授权查看" : "暂不可查看"}</Tag>
             {token ? <><a className="profile" href="/account/security">账户安全</a><button className="profile" onClick={logout}>{actorName} · 退出</button></> : <a className="profile" href="/account">登录家属账号</a>}
@@ -375,6 +389,7 @@ export default function FamilyDashboard() {
         </header>
 
         <div className="notice" role="status"><span>i</span>{notice}</div>
+        {token && apiState === "connected" && <FamilyVoiceCall token={token} targetId={selectedElderId} onUnauthorized={() => { sessionStorage.removeItem("hearttrace.family.session"); setToday(null); setToken(null); setApiState("signed_out"); router.replace("/account"); }} />}
 
         {page === "notifications" && token ? (
           <NotificationView notifications={notifications} loading={notificationLoading} busyId={notificationBusy} canOpenCare={apiState === "connected"} onRefresh={loadNotifications} onRead={readNotification} onOpen={openNotification} />
@@ -398,10 +413,9 @@ export default function FamilyDashboard() {
 
 function CheckInView({ items, loading, error }: { items: SharedCheckIn[]; loading: boolean; error: string }) {
   const latest = items[items.length - 1];
-  const average = items.length ? (items.reduce((sum, item) => sum + item.mood + item.sleep + item.socialWillingness, 0) / (items.length * 3)).toFixed(1) : null;
   return <div className="checkin-family-grid">
     <Card className="checkin-family-hero"><div><p className="muted">老人主动分享的自述</p><h2>每天三个分数，帮助你温和地了解近况</h2><p>这里只展示老人主动分享的主观感受，不是诊断结果；如果你担心，请优先联系老人或专业人员。</p></div><Tag tone={latest ? "safe" : "calm"}>{latest ? `最近记录 ${latest.checkinDate}` : "暂无分享记录"}</Tag></Card>
-    <Card className="checkin-family-summary"><div className="card-heading"><div><p className="muted">最近 7 天</p><h2>自述概览</h2></div>{average && <strong className="checkin-average">{average}<small>/ 5 平均</small></strong>}</div>{loading && <div className="notification-empty">正在读取已分享的自述…</div>}{error && <div className="checkin-family-empty">{error}</div>}{!loading && !error && items.length === 0 && <div className="checkin-family-empty">老人还没有分享最近 7 天的自述，页面不会展示未授权内容。</div>}{!loading && !error && items.length > 0 && <div className="checkin-family-list">{[...items].reverse().map((item) => <article key={item.checkinDate}><time>{item.checkinDate}</time><div><span>心情 <b>{item.mood}</b>/5</span><span>睡眠 <b>{item.sleep}</b>/5</span><span>交流意愿 <b>{item.socialWillingness}</b>/5</span></div></article>)}</div>}</Card>
+    <Card className="checkin-family-summary"><div className="card-heading"><div><p className="muted">最近 7 天</p><h2>自述概览</h2></div>{items.length > 0 && <strong className="checkin-average">{items.length}<small>天已分享</small></strong>}</div>{loading && <div className="notification-empty">正在读取已分享的自述…</div>}{error && <div className="checkin-family-empty">{error}</div>}{!loading && !error && items.length === 0 && <div className="checkin-family-empty">老人还没有分享最近 7 天的自述，页面不会展示未授权内容。</div>}{!loading && !error && items.length > 0 && <div className="checkin-family-list">{[...items].reverse().map((item) => <article key={item.checkinDate}><time>{item.checkinDate}</time><div><span>心情 <b>{item.mood}</b>/5</span><span>睡眠 <b>{item.sleep}</b>/5</span><span>交流意愿 <b>{item.socialWillingness}</b>/5</span></div></article>)}</div>}</Card>
     <Card className="checkin-family-note"><h3>怎么看这些记录？</h3><p>分数越低，表示老人当天的主观感受越困难。单日低分不等于疾病；如果连续多天偏低，建议先主动问候，必要时联系专业人员。</p><small>数据来源：老人端“每日自述” · 分享范围由老人本人随时控制</small></Card>
   </div>;
 }
@@ -432,13 +446,15 @@ function summaryStateLabel(today: FamilyToday) {
 }
 
 function TodayView({ busy, today, action, onAction, onNavigate }: { busy: boolean; today: FamilyToday; action: string; onAction: (action: FamilyAction, label: string) => Promise<void>; onNavigate: () => void }) {
-
+  const historical = today.status.summaryState === "historical";
+  const publishedAt = today.status.generatedAt ? formatDateTimeFull(today.status.generatedAt) : "时间未记录";
   return <div className="page-grid today-grid">
     <Card className="hero-card">
       <div className="eyebrow">{summaryStateLabel(today)} <Tag tone="warm">{today.status.label}</Tag></div>
-      <h2>{today.status.headline}</h2>
+      <h2>{historical ? `${publishedAt}的关怀摘要` : today.status.headline}</h2>
+      {historical && <p className="historical-note">以下是当时发布的记录，不代表今天的状态。建议先向本人了解最新近况。</p>}
       <p>{today.status.summary}</p>
-      <div className="hero-actions"><button className="primary" disabled={busy || !today.access.careActionsAllowed} onClick={() => { void onAction("contacted", "已电话联系"); }}>我已联系</button><button className="secondary" disabled={busy || !today.access.careActionsAllowed} onClick={() => { void onAction("video_planned", "计划晚间视频联络"); }}>安排视频联络</button></div>
+      <div className="hero-actions"><button className="primary" disabled={busy || !today.access.careActionsAllowed} onClick={() => { void onAction("contacted", "家属已联系"); }}>记录已联系</button><button className="secondary" disabled={busy || !today.access.careActionsAllowed} onClick={() => { void onAction("video_planned", "已记录视频联络计划"); }}>记录视频计划</button></div>
       <small>{action}</small>
     </Card>
 
@@ -453,16 +469,17 @@ function TodayView({ busy, today, action, onAction, onNavigate }: { busy: boolea
 
     <Card className="timeline-card">
       <p className="muted">建议的关怀节奏</p><h3>把关心变成一件具体的小事</h3>
-      <div className="timeline"><div><span>现在</span><b>发一句语音或打个电话</b><small>问问昨晚睡得怎么样</small></div><div><span>今晚</span><b>安排 10 分钟视频联络</b><small>尊重本人意愿，可让家人一起问候</small></div><div><span>本周</span><b>确定一次线下探望</b><small>不强制，由家人共同商量</small></div></div>
+      <div className="timeline"><div><span>第一步</span><b>先联系本人</b><small>了解今天的实际情况，不把历史摘要当成现状</small></div><div><span>得到同意后</span><b>商量一次语音或视频联络</b><small>目前视频按钮只记录计划，不会直接拨打</small></div><div><span>需要时</span><b>共同安排探望或专业支持</b><small>由本人意愿和人工判断决定</small></div></div>
     </Card>
   </div>;
 }
 
 function ReportView({ today }: { today: FamilyToday }) {
+  const historical = today.status.summaryState === "historical";
   return <div className="page-grid report-grid">
-    <Card className="report-head"><div><Tag tone="calm">{summaryStateLabel(today)}</Tag><h2>{today.status.headline}</h2><p>{today.status.summary} 这是一份辅助关怀摘要，不是心理疾病诊断。</p></div><div className="report-score"><span>发布时间</span><small>{today.status.generatedAt ? formatDateTime(today.status.generatedAt) : "等待发布"}</small></div></Card>
-    <Card><p className="muted">授权主题</p><h3>今天值得留意的事</h3><ul className="clean-list">{today.topics.map((topic) => <li key={topic.name}>{topic.name}：{topic.note}</li>)}</ul></Card>
-    <Card><p className="muted">关怀建议</p><h3>从倾听开始</h3><ol className="number-list"><li>先问睡眠，不急着给建议。</li><li>邀请她决定视频通话时间。</li><li>若低落持续，建议完成一次标准筛查。</li></ol></Card>
+    <Card className="report-head"><div><Tag tone="calm">{summaryStateLabel(today)}</Tag><h2>{historical ? "最近一次已发布的关怀摘要" : today.status.headline}</h2>{historical && <p className="historical-note">这是历史记录，不代表今日状况。</p>}<p>{today.status.summary} 这是一份辅助关怀摘要，不是心理疾病诊断。</p></div><div className="report-score"><span>发布时间</span><small>{today.status.generatedAt ? formatDateTimeFull(today.status.generatedAt) : "等待发布"}</small></div></Card>
+    <Card><p className="muted">授权主题</p><h3>{historical ? "当时记录的关注主题" : "本次值得留意的事"}</h3><ul className="clean-list">{today.topics.map((topic) => <li key={topic.name}>{topic.name}：{topic.note}</li>)}</ul></Card>
+    <Card><p className="muted">关怀建议</p><h3>先核对当前情况</h3><ol className="number-list"><li>先联系本人，了解近况，不以旧摘要推断今天。</li><li>由本人选择是否安排语音或视频联络。</li><li>如困扰持续，可自愿进行标准筛查并寻求专业人员评估。</li></ol></Card>
     <Card className="evidence-card"><div className="card-heading"><div><p className="muted">可追溯线索</p><h3>仅展示授权后的结构化摘要</h3></div><Tag tone="safe">授权有效</Tag></div><div className="evidence-row"><span>主题</span><b>{today.topics[0]?.name ?? "暂无"}</b><em>{today.topics[0]?.note ?? "暂无摘要"}</em></div><div className="evidence-row"><span>测评</span><b>尚无标准化得分</b><em>摘要不能替代量表</em></div></Card>
   </div>;
 }
@@ -483,19 +500,24 @@ function TrendView({ today, trend, screenings, selectedDays, onSelectDays }: { t
 }
 
 function actionLabel(action: FamilyAction) {
-  return { contacted: "已联系", video_planned: "安排视频联络", referral_requested: "申请专业转介" }[action];
+  return { contacted: "已联系", video_planned: "已记录视频计划", referral_requested: "申请专业转介" }[action];
 }
 
 function formatDateTime(value: string) {
   return new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(value));
 }
 
+function formatDateTimeFull(value: string) {
+  return new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(value));
+}
+
 function RiskView({ busy, today, action, onAction }: { busy: boolean; today: FamilyToday; action: string; onAction: (action: FamilyAction, label: string) => Promise<void> }) {
-  const levelLabel = today.safety.hasActiveEmergency ? "有求助正在处理" : today.status.level ? { green: "绿色 · 状态平稳", yellow: "黄色 · 待观察", orange: "橙色 · 需要关注", red: "红色 · 紧急" }[today.status.level] : "尚无评估结果";
-  const urgency = today.safety.hasActiveEmergency ? "高" : today.status.level ? { green: "低", yellow: "低", orange: "中", red: "高" }[today.status.level] : "待确认";
+  const currentSummary = today.status.summaryState === "ready";
+  const levelLabel = today.safety.hasActiveEmergency ? "有求助正在处理" : !currentSummary ? "当前无已发布风险判断" : today.status.level ? { green: "绿色 · 未触发关注提醒", yellow: "黄色 · 待观察", orange: "橙色 · 需要关注", red: "红色 · 紧急" }[today.status.level] : "尚无评估结果";
+  const urgency = today.safety.hasActiveEmergency ? "高" : !currentSummary ? "待确认" : today.status.level ? { green: "低", yellow: "低", orange: "中", red: "高" }[today.status.level] : "待确认";
   return <div className="page-grid risk-grid">
     <Card className="risk-overview"><div><Tag tone={today.status.level === "red" ? "alert" : today.status.level === "green" ? "safe" : "warm"}>{levelLabel}</Tag><h2>{today.safety.message}</h2><p>已上报的求助会单独进入人工处置流程；没有求助记录不代表已经确认安全。</p></div><div className="risk-ring"><b>{urgency}</b><span>紧急程度</span></div></Card>
-    <Card className="action-card"><p className="muted">本次待办</p><h3>完成一项关怀行动</h3><button className="primary full" disabled={busy || !today.access.careActionsAllowed} onClick={() => { void onAction("contacted", "已电话联系"); }}>记录已联系</button><button className="secondary full" disabled={busy || !today.access.careActionsAllowed || !today.riskEventId} onClick={() => { void onAction("referral_requested", "申请专业转介"); }}>申请专业转介</button><small>{today.access.careActionsAllowed ? action : "当前授权仅允许查看摘要，不能提交关怀行动。"}</small></Card>
+    <Card className="action-card"><p className="muted">本次待办</p><h3>完成一项关怀行动</h3><button className="primary full" disabled={busy || !today.access.careActionsAllowed} onClick={() => { void onAction("contacted", "家属已联系"); }}>记录已联系</button><button className="secondary full" disabled={busy || !today.access.careActionsAllowed || !today.riskEventId} onClick={() => { void onAction("referral_requested", "申请专业转介"); }}>申请专业转介</button><small>{today.access.careActionsAllowed ? action : "当前授权仅允许查看摘要，不能提交关怀行动。"}</small></Card>
     <Card className="event-card"><div className="card-heading"><div><p className="muted">安全事件</p><h3>一键呼救与设备事件</h3></div><Tag tone={today.safety.hasActiveEmergency ? "alert" : "safe"}>{today.safety.hasActiveEmergency ? "处理中" : "暂无事件"}</Tag></div><p>{today.safety.message}</p>{today.safety.hasActiveEmergency && <div className="event-meta"><span>{today.safety.source === "device_button" ? "设备实体求助键" : "老人端一键呼救"}</span>{today.safety.triggeredAt && <span>发起于 {formatDateTime(today.safety.triggeredAt)}</span>}</div>}<small>家属端只显示事件状态和必要说明；不默认开放摄像头画面或日常视频。</small></Card>
   </div>;
 }

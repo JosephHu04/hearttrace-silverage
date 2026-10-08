@@ -215,7 +215,7 @@ def test_dashscope_tts_downloads_only_approved_wav(monkeypatch):
             payload = json.loads(request.content)
             assert payload["model"] == "qwen-audio-3.0-tts-flash"
             assert payload["input"]["format"] == "wav"
-            assert payload["input"]["voice"] == "longanfengyue"
+            assert payload["input"]["voice"] == "longanlingxi"
             return httpx.Response(200, json={"output": {"audio": {"url": audio_url}}})
         assert str(request.url) == audio_url
         return httpx.Response(200, content=wav)

@@ -4,7 +4,7 @@ from datetime import date, datetime, timezone
 from typing import Optional
 from uuid import uuid4
 
-from sqlalchemy import JSON, Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -180,6 +180,30 @@ class FamilyElderGrant(Base):
     version: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class VoiceCallSession(Base):
+    __tablename__ = "voice_call_sessions"
+    __table_args__ = (
+        Index("ix_voice_calls_elder_time", "elder_id", "created_at"),
+        Index("ix_voice_calls_family_time", "family_id", "created_at"),
+        Index("uq_voice_calls_elder_busy", "elder_id", unique=True,
+              sqlite_where=text("status IN ('ringing', 'active')"),
+              postgresql_where=text("status IN ('ringing', 'active')")),
+        Index("uq_voice_calls_family_busy", "family_id", unique=True,
+              sqlite_where=text("status IN ('ringing', 'active')"),
+              postgresql_where=text("status IN ('ringing', 'active')")),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=uuid_string)
+    elder_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    family_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    caller_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    status: Mapped[str] = mapped_column(String(24), default="ringing")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    answered_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class DeviceElderBinding(Base):
