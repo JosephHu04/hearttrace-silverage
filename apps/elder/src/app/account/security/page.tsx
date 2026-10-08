@@ -58,16 +58,29 @@ export default function SecurityPage() {
   }
 
   if (!token) return <main className="consent-shell"><p role="status">正在确认您的账号…</p></main>;
-  return <main className="consent-shell"><section className="consent-card elder-login">
-    <p className="consent-brand">心迹银龄 · 账号安全</p>
-    {done ? <><h1>密码已修改</h1><p role="status">旧的登录已失效，请使用新密码重新登录。</p><Link href="/account">前往登录 →</Link></> : <>
-      <Link href="/">← 返回首页</Link><h1>修改密码</h1><p>设置 10 至 128 个字符的新密码。请不要把密码告诉他人。</p>
-      <form onSubmit={(event) => { void change(event); }}>
-        <label>当前密码<input name="currentPassword" type="password" autoComplete="current-password" minLength={10} maxLength={128} required disabled={busy} /></label>
-        <label>新密码<input name="newPassword" type="password" autoComplete="new-password" minLength={10} maxLength={128} required disabled={busy} /></label>
-        <label>再输入一次新密码<input name="confirmation" type="password" autoComplete="new-password" minLength={10} maxLength={128} required disabled={busy} /></label>
-        <button disabled={busy}>{busy ? "正在修改…" : "确认修改"}</button>
-      </form>{notice && <p role="alert">{notice}</p>}
-    </>}
-  </section></main>;
+  return <main className="app-shell account-page">
+    <header className="topbar account-topbar">
+      <Link className="brand" href="/">心迹银龄 <span>· 账号安全</span></Link>
+      <Link className="account-back" href="/">返回陪伴首页</Link>
+    </header>
+    <section className="account-security-card" aria-labelledby="security-title">
+      {done ? <>
+        <span className="account-eyebrow">账号安全</span>
+        <h1 id="security-title">密码已修改</h1>
+        <p role="status">旧的登录已失效，请使用新密码重新登录。</p>
+        <Link className="account-primary-link" href="/account">前往登录</Link>
+      </> : <>
+        <span className="account-eyebrow">账号安全</span>
+        <h1 id="security-title">修改密码</h1>
+        <p>为了保护您的账号，请先输入当前密码，再设置新密码。</p>
+        <form className="account-security-form" onSubmit={(event) => { void change(event); }}>
+          <label>当前密码<input name="currentPassword" type="password" autoComplete="current-password" minLength={10} maxLength={128} required disabled={busy} /></label>
+          <label>新密码<input name="newPassword" type="password" autoComplete="new-password" minLength={10} maxLength={128} required disabled={busy} /></label>
+          <label>确认新密码<input name="confirmation" type="password" autoComplete="new-password" minLength={10} maxLength={128} required disabled={busy} /></label>
+          <small>新密码需为 10 至 128 个字符，请不要告诉他人。</small>
+          <button disabled={busy}>{busy ? "正在修改…" : "保存新密码"}</button>
+        </form>{notice && <p role="alert">{notice}</p>}
+      </>}
+    </section>
+  </main>;
 }

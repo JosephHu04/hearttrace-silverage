@@ -7,6 +7,11 @@
 | `POST /api/conversations/sessions` | 老人端 | 创建会话并校验保存与分析授权 |
 | `GET/POST /api/elder/check-ins` | 老人端 | 查看或保存本人每日自述与独立分享选择 |
 | `POST /api/elder/check-ins/{id}/sharing` | 老人端 | 修改本人历史打卡的分享选择 |
+| `GET /api/screenings/instruments` | 三端登录用户 | 获取固定版本的 GDS-15/GAD-7 元数据 |
+| `GET/POST /api/elder/screenings` | 老人端 | 本人知情同意后发起筛查或查看本人记录 |
+| `POST /api/elder/screenings/{id}/answers` | 老人端 | 按固定顺序提交本人答案并由服务端计分 |
+| `GET /api/family/elders/{id}/screenings` | 家属端 | 只读取本人主动分享的分层与建议，不返回逐题答案和总分 |
+| `GET /api/admin/screenings` | 管理端 | 只读取本人分享给关怀团队的结构化结果 |
 | `WS /api/realtime/conversation` | 老人端 | 流式文本与语音陪伴 |
 | `POST /api/emergency/events` | 老人端、绑定设备 | 创建一键呼救或设备求助事件；使用 requestId 幂等防重 |
 | `POST /api/video-link/requests` | 老人端 | 交接至已绑定的微信联系人或电话路径 |
@@ -40,11 +45,18 @@
 ```json
 {
   "saveMessages": false,
-  "allowAnalysis": false
+  "allowAnalysis": false,
+  "persona": {
+    "id": "yaoyao",
+    "name": "遥遥",
+    "role": "像一位常来坐坐、愿意把话听完的晚辈",
+    "style": "自然、克制、尊重长者",
+    "scenarios": []
+  }
 }
 ```
 
-两个授权字段互相独立，默认均为 `false`。服务端始终保存会话 ID、所属老人、授权选择和审计记录；仅在 `saveMessages=true` 时保存聊天内容。老人只能读取自己的已保存会话，家属与工作人员没有聊天原文接口。
+两个授权字段互相独立，默认均为 `false`。`persona` 经过服务端长度和字段校验；审计记录只保存人格 ID、名称和配置指纹，WebSocket 认证时必须提交相同人格卡并通过指纹校验，不在审计中保存完整角色描述或资料。同一会话不能在连接后换成另一个人格。老人端切换人格时必须创建新会话，因此历史、自动记忆和上下文不会跨人格混用。服务端始终保存会话 ID、所属老人、授权选择和审计记录；仅在 `saveMessages=true` 时保存聊天内容并从这些已保存消息重建人格记忆。老人只能读取自己的已保存会话，家属与工作人员没有聊天原文或人格记忆接口。
 
 `WS /api/realtime/conversation` 不在 URL 中传递访问令牌。连接后的第一帧必须是：
 
@@ -52,11 +64,14 @@
 {
   "type": "authenticate",
   "accessToken": "Bearer 令牌本体",
-  "sessionId": "会话 ID"
+  "sessionId": "会话 ID",
+  "persona": "与创建会话时完全相同的人格卡"
 }
 ```
 
 认证成功后，客户端发送 `{"type":"message","text":"..."}`。服务端事件包括：
+
+客户端可以同时发送最多 4 条、每条最多 600 字的 `knowledge` 片段。老人端只从当前人格资料中按本轮文字相关度选取片段；服务端不保存这些片段，也不会把一个人格的资料用于另一个会话。资料只能补充表达背景，不能覆盖服务端的安全路由、危机处理和授权规则。
 
 | `type` | 用途 |
 | --- | --- |
@@ -69,6 +84,14 @@
 | `error` | 可向用户说明的连接错误 |
 
 时间、天气和新闻使用服务端快速路由，不增加第二次模型调用。非紧急普通对话由 `DASHSCOPE_COMPANION_MODEL` 处理；急症、跌倒、自伤语言等安全场景不交给生成模型决定。
+
+### 多人格记忆边界
+
+- 默认人格为“遥遥”。自定义人格卡和资料保存在当前老人账号的浏览器本地空间，服务端只绑定会话所选的人格卡；当前版本不提供家属或工作人员的人格管理入口。
+- 首次消息可以依据用户自己填写的“适用场景”做一次确定性选择；只有唯一最高匹配时才切换，模糊匹配保持当前人格。切换会先创建独立会话，不在同一历史里改身份。
+- 明确出现“记住／别忘了”的内容可直接进入本人格上下文。普通稳定事实至少在两个用户回合重复出现后才会被当作已确认记忆；临时内容、健康／用药、安全事件、财务信息和口令不会通过自动重复机制升级。
+- 更正内容在提示上下文中取代旧事实，但已保存的原始消息不会被静默改写。称呼偏好、交流边界和“下次再聊”话题从原消息重建，并只对当前人格会话生效。
+- `saveMessages=false` 时不保存原文、不形成跨轮持久记忆；自定义人格资料即使由客户端送入本轮，也不落入消息、分析任务或家属摘要。
 
 `GET /api/elder/widgets/weather` 和 `GET /api/elder/widgets/news` 仅允许老人角色读取。定位参数只用于当次天气请求，本纵向切片不保存精确位置。
 
@@ -111,6 +134,14 @@
 
 前端联调需确认：三个 1–5 级的中文选项文案、两个分享开关的知情说明，以及工作人员是否需要在管理台展示原始自述值。未确认前，不应将此接口接入自动风险定级。
 
+## 已实现：标准化老年心理关怀筛查
+
+比赛版本采用 `WS/T 802-2022` 附录 B.3 的 GAD-7 和附录 B.4 的 GDS-15。题目、选项、计分方向、阈值和量表版本均由后端固定；大模型只能建议本人自愿开始，不能改写题目、代替作答或计算分数。
+
+老人发起筛查时必须提交 `consentConfirmed=true`，并分别选择 `shareWithFamily` 与 `shareWithCareTeam`。两个分享选项默认关闭且互不推导。每题必须按服务端返回的 `itemCode` 顺序提交；相同答案的网络重试幂等，不允许利用重试改写已提交答案。
+
+GDS-15 按 0-8、9-11、12-15 分为一般、中度关注和高度关注；GAD-7 按 0-9、10-14、15-21 分层。本人分享给关怀团队的中高关注结果进入人工风险复核；量表高分本身不会创建紧急事件。家属只读取本人分享的量表名称、分层、时间和关怀建议，不读取逐题答案或总分。详细边界见 [筛查标准](screening-standard.md)。
+
 ## 家属注册状态机
 
 ```text
@@ -120,7 +151,7 @@
 
 管理端只可查看申请人、联系方式、关系和授权声明版本，不能读取明文密码或密码哈希。找回密码令牌必须由邮件或短信适配器发送；当前仓库已完成生成、哈希存储、过期与一次性消费机制，但不把令牌暴露给浏览器。
 
-申请中的老人姓名只用于人工比对，不能直接作为授权依据。管理员通过申请时必须提交系统内的 `elderId`；服务端同事务创建家属账号和 `family_elder_grants`。当前允许的授权范围仅为 `daily_summary` 与 `care_actions`，不提供聊天全文或设备视频范围。撤销后家属列表立即移除该老人，已有令牌再次访问也返回 403。
+申请中的老人姓名只用于人工比对，不能直接作为授权依据。管理员通过申请时必须提交系统内的 `elderId` 和身份、关系核验说明；服务端同事务创建家属账号和 `family_elder_grants`。当前允许的授权范围仅为 `daily_summary` 与 `care_actions`，不提供聊天全文或设备视频范围。撤销后家属列表立即移除该老人，已有令牌再次访问也返回 403。
 
 ## 已实现：风险复核纵向切片
 
@@ -140,7 +171,7 @@
 | `GET /api/admin/risk-events` | admin、professional | 风险队列，支持 level、status、page、perPage |
 | `GET /api/admin/risk-events/{id}` | admin、professional | 结构化证据、版本和处置时间线；访问会审计 |
 | `POST /api/admin/risk-events/{id}/actions` | admin、professional | 按状态机执行复核动作 |
-| `GET /api/admin/audit-logs` | admin、professional（暂定） | 按 actorId、action、targetType、targetId 查询审计，支持分页 |
+| `GET /api/admin/audit-logs` | admin | 按 actorId、action、targetType、targetId 查询全局审计，支持分页；专业人员不具备全局审计权限 |
 | `GET /api/admin/emergency-events` | admin、professional | 查询紧急事件队列，支持 status、elderId 和分页 |
 | `POST /api/admin/emergency-events/{id}/actions` | admin、professional | 确认、解除、取消或重新打开紧急事件 |
 

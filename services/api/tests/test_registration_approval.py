@@ -61,10 +61,22 @@ def test_approval_requires_admin_to_confirm_the_elder(client: TestClient, admin_
     review = client.post(
         f"/api/admin/registration-applications/{application['id']}/review",
         headers=admin_headers,
-        json={"decision": "approved"},
+        json={"decision": "approved", "note": "已核验申请人与老人关系"},
     )
     assert review.status_code == 400
     assert review.json()["detail"] == "通过申请前必须选择已核验的老人账号"
+
+
+def test_approval_requires_identity_and_relationship_verification_note(client: TestClient, admin_headers: dict[str, str]):
+    application = client.post("/api/auth/registration-applications", json=application_payload()).json()
+    review = client.post(
+        f"/api/admin/registration-applications/{application['id']}/review",
+        headers=admin_headers,
+        json={"decision": "approved", "elderId": "elder-demo-001", "note": "  "},
+    )
+    assert review.status_code == 400
+    assert review.json()["detail"] == "通过申请前必须填写身份及关系核验依据"
+    assert client.get("/api/admin/registration-applications", headers=admin_headers).json()["total"] == 1
 
 
 @pytest.mark.skipif(engine.dialect.name != "postgresql", reason="Requires independent PostgreSQL connections")
@@ -72,7 +84,7 @@ def test_concurrent_registration_review_creates_only_one_account(client, admin_h
     submitted = client.post("/api/auth/registration-applications", json=application_payload()).json()
     def approve(_):
         return client.post(f"/api/admin/registration-applications/{submitted['id']}/review", headers=admin_headers,
-                           json={"decision": "approved", "elderId": "elder-demo-001"}).status_code
+                           json={"decision": "approved", "elderId": "elder-demo-001", "note": "已核验申请人与老人关系"}).status_code
     with ThreadPoolExecutor(max_workers=2) as executor:
         codes = list(executor.map(approve, range(2)))
     assert sorted(codes) == [200, 409]
@@ -92,7 +104,7 @@ def test_approved_family_can_change_password_and_recovery_request_is_non_enumera
     client.post(
         f"/api/admin/registration-applications/{application['id']}/review",
         headers=admin_headers,
-        json={"decision": "approved", "elderId": "elder-demo-001"},
+        json={"decision": "approved", "elderId": "elder-demo-001", "note": "已核验申请人与老人关系"},
     )
     login = client.post("/api/auth/login", json={"loginIdentifier": "zhao@example.com", "password": "safe-password-2026"}).json()
     changed = client.post(

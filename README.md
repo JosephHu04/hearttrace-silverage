@@ -35,22 +35,22 @@ infra/              本地开发与部署配置
 3. 禁止提交 API 密钥、真实聊天、真实视频、真实联系方式或未授权样本。
 4. 紧急联络和防跌倒仅使用合成测试数据进行演示。
 
-硬件采购与终端验收规格见 [老人端触控终端与安全设备采购规格](docs/hardware-terminal-procurement.md)。
+硬件采购与终端验收规格见 [老人端触控终端与安全设备采购规格](docs/hardware-terminal-procurement.md)，视频联络的微信边界和推荐 RTC 路线见 [一键视频联络可行性](docs/video-call-feasibility.md)；已接入的前台家属语音通话见 [家属—老人实时语音通话](docs/family-voice-call.md)。
 
 ## 团队协作
 
 所有改动通过功能分支和 Pull Request 合并；CI 会校验仓库基础文档，检查并构建三个前端，测试核心 API。分支命名、冲突处理与审查要求见 [协作规则](CONTRIBUTING.md)。
 
-详细规划见 [总体技术规划书](docs/心迹银龄独立版总体技术规划书.docx)、[架构说明](docs/architecture.md)、[接口契约](docs/api-contract.md) 与 [决策记录](docs/decision-log.md)。
+详细规划见 [总体技术规划书](docs/心迹银龄独立版总体技术规划书.docx)、[架构说明](docs/architecture.md)、[接口契约](docs/api-contract.md)、[标准化筛查边界](docs/screening-standard.md)、[比赛提交执行计划](docs/competition-submission-plan-20261003.md) 与 [决策记录](docs/decision-log.md)。
 
 三端使用同一套后端、数据库和合并规则的执行清单见[三端整合执行清单](docs/three-client-integration-plan.md)。
 最近一轮稳定性与安全复核、已修问题和仍未完成的上线条件见[三端整合质量复核](docs/integration-quality-review-20260915.md)。
 
 ## 当前实现进度
 
-- 老人端：首次会话隐私选择、WebSocket 流式陪伴、一键呼救、适老对话界面，以及时间、天气和资讯组件联动。
-- 家属端：获批后登录、注册审批、密码管理、六个关怀页面、授权摘要和关怀行动的核心 API 联调；服务不可用时不回退到 Mock 老人数据。
-- 管理端：风险队列、家属注册核验、关系授权管理、紧急求助处置、结构化证据、状态机操作和审计查询。
+- 老人端：首次会话隐私选择、WebSocket 流式陪伴、一键呼救、适老对话界面、每日自述与独立分享控制，以及时间、天气和资讯组件联动。
+- 家属端：获批后登录、注册审批、密码管理、授权摘要、关怀行动与老人主动分享的每日自述；服务不可用时不回退到 Mock 老人数据。
+- 管理端：风险队列、每日自述人工关注台、家属注册核验、关系授权管理、紧急求助处置、结构化证据、状态机操作和审计查询。
 - 核心 API：演示 JWT、服务端 RBAC、家属关系授权与即时撤销、设备绑定隔离、风险复核、紧急求助、授权会话分析 Outbox、幂等与乐观版本、审计日志、SQLite/PostgreSQL 配置及 Alembic 迁移。
 - 分析 Worker：仅处理同时获得保存与分析授权的会话；Qwen 输出先形成结构化候选并进入人工复核，工作人员确认后才发布家属可见摘要。
 - 通知：注册通过、授权变更、风险跟进、紧急求助及其状态变化会生成幂等站内通知，并通过 Outbox 保留后续短信/邮件适配入口。

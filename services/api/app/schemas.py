@@ -280,9 +280,141 @@ class StaffCheckInListOut(ApiModel):
     total: int
 
 
+class ScreeningInstrumentCode(str, Enum):
+    gds15 = "gds15"
+    gad7 = "gad7"
+
+
+class ScreeningStatus(str, Enum):
+    in_progress = "in_progress"
+    completed = "completed"
+
+
+class ScreeningBand(str, Enum):
+    normal = "normal"
+    moderate = "moderate"
+    high = "high"
+
+
+class ScreeningChoiceOut(ApiModel):
+    value: str
+    label: str
+
+
+class ScreeningQuestionOut(ApiModel):
+    item_code: str
+    number: int
+    text: str
+    choices: list[ScreeningChoiceOut]
+
+
+class ScreeningAnsweredQuestionOut(ScreeningQuestionOut):
+    selected_value: str
+
+
+class ScreeningInstrumentOut(ApiModel):
+    code: ScreeningInstrumentCode
+    version: str
+    name: str
+    purpose: str
+    timeframe: str
+    standard_reference: str
+    item_count: int
+
+
+class ScreeningInstrumentListOut(ApiModel):
+    items: list[ScreeningInstrumentOut]
+    notice: str
+
+
+class ScreeningStartRequest(ApiModel):
+    model_config = ConfigDict(extra="forbid")
+
+    instrument_code: ScreeningInstrumentCode
+    consent_confirmed: bool
+    share_with_family: bool = False
+    share_with_care_team: bool = False
+
+
+class ScreeningAnswerRequest(ApiModel):
+    model_config = ConfigDict(extra="forbid")
+
+    item_code: str = Field(min_length=1, max_length=32)
+    value: str = Field(min_length=1, max_length=16)
+
+
+class ScreeningCorrectionRequest(ApiModel):
+    model_config = ConfigDict(extra="forbid")
+
+    value: str = Field(min_length=1, max_length=16)
+
+
+class ScreeningResultOut(ApiModel):
+    total_score: int
+    score_range: str
+    band: ScreeningBand
+    label: str
+    recommendation: str
+    notice: str
+
+
+class ScreeningSessionOut(ApiModel):
+    id: str
+    elder_id: str
+    instrument: ScreeningInstrumentOut
+    status: ScreeningStatus
+    progress_answered: int
+    answered_questions: list[ScreeningAnsweredQuestionOut]
+    share_with_family: bool
+    share_with_care_team: bool
+    current_question: Optional[ScreeningQuestionOut] = None
+    result: Optional[ScreeningResultOut] = None
+    consent_at: datetime
+    completed_at: Optional[datetime]
+    created_at: datetime
+
+
+class ScreeningSessionListOut(ApiModel):
+    items: list[ScreeningSessionOut]
+
+
+class ScreeningSummaryOut(ApiModel):
+    id: str
+    elder_id: str
+    elder_name: str
+    instrument_code: ScreeningInstrumentCode
+    instrument_name: str
+    status: ScreeningStatus
+    band: Optional[ScreeningBand]
+    label: str
+    recommendation: Optional[str]
+    completed_at: Optional[datetime]
+    created_at: datetime
+
+
+class ScreeningSummaryListOut(ApiModel):
+    items: list[ScreeningSummaryOut]
+    total: int
+
+
+class ConversationPersona(ApiModel):
+    model_config = ConfigDict(extra="forbid", alias_generator=to_camel, populate_by_name=True)
+
+    id: str = Field(default="yaoyao", min_length=1, max_length=64, pattern=r"^[a-zA-Z0-9_-]+$")
+    name: str = Field(default="遥遥", min_length=1, max_length=40)
+    role: str = Field(
+        default="像一位常来坐坐、愿意把话听完的晚辈",
+        min_length=2,
+        max_length=300,
+    )
+    style: str = Field(default="自然、克制、尊重长者", min_length=2, max_length=300)
+    scenarios: list[str] = Field(default_factory=list, max_length=12)
+
+
 class ConversationSessionCreate(ApiModel):
     save_messages: bool = False
     allow_analysis: bool = False
+    persona: ConversationPersona = Field(default_factory=ConversationPersona)
 
 
 class ConversationSessionOut(ApiModel):

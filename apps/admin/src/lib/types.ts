@@ -82,11 +82,40 @@ export type RiskListResponse = {
   total: number;
 };
 
+export type AdminCheckIn = {
+  id: string;
+  elderId: string;
+  elderName: string;
+  checkinDate: string;
+  mood: number;
+  sleep: number;
+  socialWillingness: number;
+  attentionNeeded: boolean;
+};
+
+export type AdminCheckInList = { items: AdminCheckIn[]; total: number };
+
 export type RiskActionResponse = {
   event: RiskDetail;
   action: RiskActionRecord;
   duplicate: boolean;
 };
+
+export type ScreeningSummary = {
+  id: string;
+  elderId: string;
+  elderName: string;
+  instrumentCode: "gds15" | "gad7";
+  instrumentName: string;
+  status: "in_progress" | "completed";
+  band: "normal" | "moderate" | "high" | null;
+  label: string;
+  recommendation: string | null;
+  completedAt: string | null;
+  createdAt: string;
+};
+
+export type ScreeningSummaryList = { items: ScreeningSummary[]; total: number };
 
 export type AuditLogItem = {
   id: string;

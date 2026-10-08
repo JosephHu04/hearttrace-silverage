@@ -117,6 +117,8 @@ def review_registration_application(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="注册申请不存在")
     if application.status != RegistrationStatus.pending.value:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="该申请已处理，请刷新列表")
+    if body.decision is RegistrationStatus.approved and not (body.note or "").strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="通过申请前必须填写身份及关系核验依据")
 
     # Claim the pending review inside the same transaction as account/grant creation.
     claimed = db.execute(update(RegistrationApplication).where(

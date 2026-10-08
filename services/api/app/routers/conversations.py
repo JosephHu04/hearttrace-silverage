@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
+import secrets
 import time
 from collections.abc import Iterator
 
@@ -13,10 +16,10 @@ from app.core.config import get_settings
 from app.db.models import AuditLog, ConversationMessage, ConversationSession, User, utc_now
 from app.db.session import SessionLocal
 from app.dependencies import DbSession, ElderActor, resolve_actor_from_token
-from app.schemas import ConversationMessageOut, ConversationSessionCreate, ConversationSessionOut
+from app.schemas import ConversationMessageOut, ConversationPersona, ConversationSessionCreate, ConversationSessionOut
 from app.services.companion.client import CompanionClient
 from app.services.companion.live_info import build_live_info_result, detect_live_info_kind
-from app.services.companion.policy import plan_care_turn
+from app.services.companion.policy import derive_memory_context, plan_care_turn
 from app.services.companion.widgets import WidgetUnavailable, get_news, get_weather
 from app.services.analysis_pipeline import queue_conversation_analysis
 
@@ -24,7 +27,17 @@ from app.services.analysis_pipeline import queue_conversation_analysis
 router = APIRouter(tags=["elder-conversations"])
 settings = get_settings()
 companion_client = CompanionClient(settings)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("uvicorn.error")
+
+
+def _persona_fingerprint(persona: ConversationPersona) -> str:
+    canonical = json.dumps(
+        persona.model_dump(mode="json", by_alias=True),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def _session_out(session: ConversationSession) -> ConversationSessionOut:
@@ -41,6 +54,8 @@ def create_conversation_session(
     db: DbSession,
     elder: ElderActor,
 ) -> ConversationSessionOut:
+    if any(len(item.strip()) < 2 or len(item.strip()) > 40 for item in body.persona.scenarios):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="人格适用场景每项需为 2 至 40 个字")
     session = ConversationSession(
         elder_id=elder.id,
         save_messages=body.save_messages,
@@ -57,12 +72,42 @@ def create_conversation_session(
             metadata_json={
                 "saveMessages": body.save_messages,
                 "allowAnalysis": body.allow_analysis,
+                "persona": {"id": body.persona.id, "name": body.persona.name},
+                "personaFingerprint": _persona_fingerprint(body.persona),
             },
         )
     )
     db.commit()
     db.refresh(session)
     return _session_out(session)
+
+
+def _session_persona(
+    db: DbSession, session_id: str, supplied: object,
+) -> ConversationPersona:
+    audit = db.scalar(
+        select(AuditLog)
+        .where(
+            AuditLog.action == "conversation.session_created",
+            AuditLog.target_type == "conversation_session",
+            AuditLog.target_id == session_id,
+        )
+        .order_by(AuditLog.created_at.asc())
+        .limit(1)
+    )
+    try:
+        persona = ConversationPersona.model_validate(supplied or {})
+    except ValueError:
+        raise ValueError("人格配置格式不正确") from None
+    fingerprint = (
+        audit.metadata_json.get("personaFingerprint")
+        if audit else _persona_fingerprint(ConversationPersona())
+    )
+    if not fingerprint:
+        fingerprint = _persona_fingerprint(ConversationPersona())
+    if fingerprint != _persona_fingerprint(persona):
+        raise ValueError("人格配置与会话不一致")
+    return persona
 
 
 def _owned_session(db: DbSession, session_id: str, elder: User) -> ConversationSession:
@@ -162,6 +207,24 @@ def _load_history(session_id: str, should_load: bool) -> list[dict[str, str]]:
     return [{"role": item.role, "content": item.content} for item in reversed(rows)]
 
 
+def _load_memory_history(session_id: str, should_load: bool) -> list[dict[str, str]]:
+    if not should_load:
+        return []
+    with SessionLocal() as db:
+        rows = list(
+            db.scalars(
+                select(ConversationMessage)
+                .where(
+                    ConversationMessage.session_id == session_id,
+                    ConversationMessage.role == "user",
+                )
+                .order_by(ConversationMessage.created_at.desc())
+                .limit(240)
+            ).all()
+        )
+    return [{"role": "user", "content": item.content} for item in reversed(rows)]
+
+
 def _persist_message(
     session_id: str,
     *,
@@ -243,6 +306,11 @@ async def realtime_conversation(websocket: WebSocket) -> None:
                 await _reject(websocket, code=4403, message="无权访问该会话")
                 return
             save_messages = session.save_messages
+            try:
+                persona = _session_persona(db, session_id, authentication.get("persona"))
+            except ValueError as exc:
+                await _reject(websocket, code=4403, message=str(exc))
+                return
 
         history = _load_history(session_id, save_messages)
         await websocket.send_json(
@@ -250,7 +318,9 @@ async def realtime_conversation(websocket: WebSocket) -> None:
                 "type": "ready",
                 "sessionId": session_id,
                 "model": settings.dashscope_companion_model,
+                "modelReady": bool(settings.dashscope_api_key.strip()),
                 "messageStorage": save_messages,
+                "persona": {"id": persona.id, "name": persona.name},
             }
         )
 
@@ -280,18 +350,34 @@ async def realtime_conversation(websocket: WebSocket) -> None:
                 await websocket.send_json({"type": "error", "message": "消息过长，请分几次发送"})
                 continue
 
+            raw_knowledge = incoming.get("knowledge", [])
+            if not isinstance(raw_knowledge, list):
+                raw_knowledge = []
+            persona_knowledge = [
+                item.strip() for item in raw_knowledge
+                if isinstance(item, str) and 0 < len(item.strip()) <= 600
+            ][:4]
+
             started = time.perf_counter()
+            trace_id = secrets.token_hex(6)
             previous_users = [item["content"] for item in reversed(history) if item["role"] == "user"]
             openings = [item["content"].splitlines()[0][:32] for item in reversed(history) if item["role"] == "assistant"]
+            memory_context = derive_memory_context(
+                [*_load_memory_history(session_id, save_messages), {"role": "user", "content": message}], message
+            ) if save_messages else None
             plan = plan_care_turn(
                 message,
                 turn_count=sum(1 for item in history if item["role"] == "user"),
                 recent_user_messages=previous_users,
                 recent_openings=openings,
+                persona=persona.model_dump(mode="json"),
+                memory_context=memory_context,
+                persona_knowledge=persona_knowledge,
             )
             history.append({"role": "user", "content": message})
             history = history[-settings.companion_history_limit:]
             _persist_message(session_id, role="user", content=message, processing=plan.processing)
+            preparation_ms = round((time.perf_counter() - started) * 1000)
 
             kind = None if plan.direct_reply else detect_live_info_kind(message)
             if kind:
@@ -302,6 +388,9 @@ async def realtime_conversation(websocket: WebSocket) -> None:
 
             reply_parts: list[str] = []
             first_delta_ms: int | None = None
+            upstream_connect_ms: int | None = None
+            failure_kind: str | None = None
+            upstream_status: int | None = None
             model = "local-safety-router" if plan.direct_reply else "local-live-info" if live_info else settings.dashscope_companion_model
             try:
                 if plan.direct_reply or live_info:
@@ -311,6 +400,7 @@ async def realtime_conversation(websocket: WebSocket) -> None:
                     iterator = iter(("实时信息暂时没有取到，请稍后再试。",))
                 else:
                     model, iterator = await asyncio.to_thread(companion_client.stream_reply, history, plan.context)
+                    upstream_connect_ms = round((time.perf_counter() - started) * 1000) - preparation_ms
                 await websocket.send_json(
                     {
                         "type": "meta",
@@ -319,6 +409,8 @@ async def realtime_conversation(websocket: WebSocket) -> None:
                         "processing": plan.processing,
                         "familiarity": plan.familiarity,
                         "careMode": plan.care_mode,
+                        "persona": {"id": persona.id, "name": persona.name},
+                        "memoryContextCount": len(memory_context.memories) if memory_context else 0,
                     }
                 )
                 while True:
@@ -333,23 +425,42 @@ async def realtime_conversation(websocket: WebSocket) -> None:
                 if not reply:
                     raise RuntimeError("模型返回空回复")
             except (APIConnectionError, APITimeoutError, APIStatusError, RateLimitError, RuntimeError) as exc:
-                logger.warning("Companion generation degraded: %s", type(exc).__name__)
-                reply = _fallback(plan.care_mode)
-                model = "local-network-fallback"
+                failure_kind = type(exc).__name__
+                upstream_status = getattr(exc, "status_code", None)
+                logger.warning(
+                    "companion_failure trace=%s kind=%s upstream_status=%s elapsed_ms=%d",
+                    trace_id, failure_kind, upstream_status, round((time.perf_counter() - started) * 1000),
+                )
+                model_unconfigured = not settings.dashscope_api_key.strip()
+                reply = (
+                    "陪伴聊天模型尚未配置。请联系管理员完成配置后再试，紧急情况请直接使用呼救功能。"
+                    if model_unconfigured else _fallback(plan.care_mode)
+                )
+                model = "local-model-unconfigured" if model_unconfigured else "local-network-fallback"
                 first_delta_ms = round((time.perf_counter() - started) * 1000)
-                await websocket.send_json({"type": "meta", "model": model, "processing": "network_fallback"})
+                await websocket.send_json({"type": "meta", "model": model, "processing": "model_unconfigured" if model_unconfigured else "network_fallback"})
                 await websocket.send_json({"type": "delta", "text": reply})
 
             history.append({"role": "assistant", "content": reply})
             history = history[-settings.companion_history_limit:]
             _persist_message(session_id, role="assistant", content=reply, processing=plan.processing, model=model)
+            total_ms = round((time.perf_counter() - started) * 1000)
+            logger.info(
+                "companion_latency trace=%s model=%s preparation_ms=%d upstream_connect_ms=%s "
+                "first_delta_ms=%s total_ms=%d outcome=%s",
+                trace_id, model, preparation_ms, upstream_connect_ms, first_delta_ms,
+                total_ms, failure_kind or "ok",
+            )
             await websocket.send_json(
                 {
                     "type": "done",
                     "reply": reply,
                     "model": model,
+                    "traceId": trace_id,
+                    "preparationMs": preparation_ms,
+                    "upstreamConnectMs": upstream_connect_ms,
                     "firstDeltaMs": first_delta_ms,
-                    "totalMs": round((time.perf_counter() - started) * 1000),
+                    "totalMs": total_ms,
                 }
             )
     except WebSocketDisconnect:

@@ -1,4 +1,4 @@
-import type { ActionResult, AuthMessage, FamilyAction, FamilyCarePlanItem, FamilyElderList, FamilyToday, FamilyTrend, LoginResult, NotificationList, NotificationReadResult, RegistrationApplication, RegistrationApplicationStatus } from "./types";
+import type { ActionResult, AuthMessage, FamilyAction, FamilyCarePlanItem, FamilyElderList, FamilyToday, FamilyTrend, LoginResult, NotificationList, NotificationReadResult, RegistrationApplication, RegistrationApplicationStatus, ScreeningSummaryList, SharedCheckInList } from "./types";
 
 const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
@@ -43,6 +43,14 @@ export function getFamilyToday(token: string, elderId: string) {
 
 export function getFamilyTrend(token: string, elderId: string, days: 7 | 30) {
   return request<FamilyTrend>(`/api/family/elders/${elderId}/trend?days=${days}`, token);
+}
+
+export function getFamilyCheckIns(token: string, elderId: string, days = 7) {
+  return request<SharedCheckInList>(`/api/family/elders/${elderId}/check-ins?days=${days}`, token);
+}
+
+export function getFamilyScreenings(token: string, elderId: string, days: 7 | 30) {
+  return request<ScreeningSummaryList>(`/api/family/elders/${elderId}/screenings?days=${days}`, token);
 }
 
 export function getFamilyCarePlan(token: string, elderId: string) {

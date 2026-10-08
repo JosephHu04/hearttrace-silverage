@@ -47,7 +47,7 @@ def test_approval_requires_verified_elder_and_creates_usable_grant(
     approved = client.post(
         f"/api/admin/registration-applications/{application['id']}/review",
         headers=admin_headers,
-        json={"decision": "approved", "elderId": "elder-demo-001"},
+        json={"decision": "approved", "elderId": "elder-demo-001", "note": "已核验申请人与老人关系"},
     )
     assert approved.status_code == 200
     login = client.post(

@@ -59,7 +59,7 @@ def test_new_family_registration_to_chat_summary_follow_up_and_revocation(
     approved = client.post(
         f"/api/admin/registration-applications/{submitted.json()['id']}/review",
         headers=admin_headers,
-        json={"decision": "approved", "elderId": elder_id},
+        json={"decision": "approved", "elderId": elder_id, "note": "已核验申请人与老人关系"},
     )
     assert approved.status_code == 200
     login = client.post("/api/auth/login", json=credentials)
